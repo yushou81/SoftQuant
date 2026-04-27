@@ -7,8 +7,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.softquant.backend.metrics.fp.dto.FpCalculateRequest;
+import com.softquant.backend.metrics.fp.dto.FpCalculateResponse;
 import com.softquant.backend.metrics.fp.dto.FpParseRequest;
 import com.softquant.backend.metrics.fp.dto.FpParseResponse;
+import com.softquant.backend.metrics.fp.service.FpCalculateService;
 import com.softquant.backend.metrics.fp.service.FpParseService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -29,6 +32,9 @@ class FpMetricsControllerTest {
 
     @MockBean
     private FpParseService fpParseService;
+
+    @MockBean
+    private FpCalculateService fpCalculateService;
 
     @Test
     void shouldExposeFpParseEndpoint() throws Exception {
@@ -69,6 +75,35 @@ class FpMetricsControllerTest {
                                 ""
                         ))))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void shouldExposeFpCalculateEndpoint() throws Exception {
+        FpCalculateResponse response = new FpCalculateResponse();
+        response.setModule("FP");
+        response.setContractKind("CALCULATION");
+        response.setUfp(new java.math.BigDecimal("17.0000"));
+        response.setVaf(new java.math.BigDecimal("0.8800"));
+        response.setFp(new java.math.BigDecimal("14.9600"));
+        response.setLocEstimate(898);
+
+        when(fpCalculateService.calculate(any(FpCalculateRequest.class))).thenReturn(response);
+
+        mockMvc.perform(post("/api/metrics/fp/calculate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new FpCalculateRequest(
+                                "数据流图1",
+                                List.of(new FpCalculateRequest.ComponentInput("c1", "ILF", "消息", 20, 2, null, null)),
+                                List.of(),
+                                new FpCalculateRequest.LanguageInput("JAVA", 60)
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.module").value("FP"))
+                .andExpect(jsonPath("$.contractKind").value("CALCULATION"))
+                .andExpect(jsonPath("$.ufp").value(17.0))
+                .andExpect(jsonPath("$.vaf").value(0.88))
+                .andExpect(jsonPath("$.fp").value(14.96))
+                .andExpect(jsonPath("$.locEstimate").value(898));
     }
 
     private FpParseResponse.DfdProcessPreview process(String processId, String processName) {
