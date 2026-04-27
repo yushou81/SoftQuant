@@ -7,8 +7,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.softquant.backend.metrics.ucp.dto.UcpCalculateRequest;
+import com.softquant.backend.metrics.ucp.dto.UcpCalculateResponse;
 import com.softquant.backend.metrics.ucp.dto.UcpParseRequest;
 import com.softquant.backend.metrics.ucp.dto.UcpParseResponse;
+import com.softquant.backend.metrics.ucp.service.UcpCalculateService;
 import com.softquant.backend.metrics.ucp.service.UcpParseService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -29,6 +32,9 @@ class UcpMetricsControllerTest {
 
     @MockBean
     private UcpParseService ucpParseService;
+
+    @MockBean
+    private UcpCalculateService ucpCalculateService;
 
     @Test
     void shouldExposeUcpParseEndpoint() throws Exception {
@@ -75,6 +81,39 @@ class UcpMetricsControllerTest {
                                 ""
                         ))))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void shouldExposeUcpCalculateEndpoint() throws Exception {
+        UcpCalculateResponse response = new UcpCalculateResponse();
+        response.setModule("UCP");
+        response.setContractKind("CALCULATION");
+        response.setProjectName("在线教学系统");
+        response.setUaw(new java.math.BigDecimal("9.0000"));
+        response.setUuc(new java.math.BigDecimal("30.0000"));
+        response.setUcp(new java.math.BigDecimal("32.1458"));
+        response.setEffort(new java.math.BigDecimal("900.0810"));
+
+        when(ucpCalculateService.calculate(any(UcpCalculateRequest.class))).thenReturn(response);
+
+        mockMvc.perform(post("/api/metrics/ucp/calculate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new UcpCalculateRequest(
+                                "在线教学系统",
+                                List.of(new UcpCalculateRequest.ActorInput("a1", "学生", "COMPLEX", null)),
+                                List.of(new UcpCalculateRequest.UseCaseInput("u1", "系统登录", "AVERAGE", null, 2, 5, 6)),
+                                List.of(),
+                                List.of(),
+                                null,
+                                null
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.module").value("UCP"))
+                .andExpect(jsonPath("$.contractKind").value("CALCULATION"))
+                .andExpect(jsonPath("$.uaw").value(9.0))
+                .andExpect(jsonPath("$.uuc").value(30.0))
+                .andExpect(jsonPath("$.ucp").value(32.1458))
+                .andExpect(jsonPath("$.effort").value(900.0810));
     }
 
     private UcpParseResponse.UcpActorPreview actor(String actorId, String actorName) {
