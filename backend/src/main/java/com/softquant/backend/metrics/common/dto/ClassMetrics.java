@@ -1,6 +1,6 @@
-package com.softquant.backend.metrics.ck.dto;
+package com.softquant.backend.metrics.common.dto;
 
-public class CkClassMetrics {
+public class ClassMetrics {
 
     private String className;
     private String superClassName;
@@ -10,6 +10,10 @@ public class CkClassMetrics {
     private int cbo;
     private int rfc;
     private int lcom;
+    private int cs;
+    private int npa;
+    private int noo;
+    private int noa;
 
     public String getClassName() {
         return className;
@@ -73,5 +77,37 @@ public class CkClassMetrics {
 
     public void setLcom(int lcom) {
         this.lcom = lcom;
+    }
+
+    public int getCs() {
+        return cs;
+    }
+
+    public void setCs(int cs) {
+        this.cs = cs;
+    }
+
+    public int getNpa() {
+        return npa;
+    }
+
+    public void setNpa(int npa) {
+        this.npa = npa;
+    }
+
+    public int getNoo() {
+        return noo;
+    }
+
+    public void setNoo(int noo) {
+        this.noo = noo;
+    }
+
+    public int getNoa() {
+        return noa;
+    }
+
+    public void setNoa(int noa) {
+        this.noa = noa;
     }
 }

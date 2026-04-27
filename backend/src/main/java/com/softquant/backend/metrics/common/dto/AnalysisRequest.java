@@ -1,12 +1,13 @@
-package com.softquant.backend.metrics.ck.dto;
+package com.softquant.backend.metrics.common.dto;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import java.util.List;
 
-public class CkAnalysisRequest {
+public class AnalysisRequest {
 
     private String projectName;
+    private String metricSet;
     private String classDiagramText;
     private String flowDiagramText;
     private String useCaseText;
@@ -23,6 +24,14 @@ public class CkAnalysisRequest {
 
     public void setProjectName(String projectName) {
         this.projectName = projectName;
+    }
+
+    public String getMetricSet() {
+        return metricSet;
+    }
+
+    public void setMetricSet(String metricSet) {
+        this.metricSet = metricSet;
     }
 
     public List<JavaSourceInput> getSources() {

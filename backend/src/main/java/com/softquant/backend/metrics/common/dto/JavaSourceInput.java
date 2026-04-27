@@ -1,4 +1,4 @@
-package com.softquant.backend.metrics.ck.dto;
+package com.softquant.backend.metrics.common.dto;
 
 import jakarta.validation.constraints.NotBlank;
 
