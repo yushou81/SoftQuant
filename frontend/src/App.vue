@@ -1,3 +1,59 @@
+<script setup>
+import { computed, ref } from 'vue'
+import CkWorkbench from './components/ck/CkWorkbench.vue'
+
+const activeNav = ref('oo')
+
+const modules = [
+  {
+    key: 'ucp',
+    title: '用例点度量',
+    subtitle: 'Use Case Points',
+    description: '输入参与者、用例复杂度、TCF 和 EF，输出 UUCP/UCP 与工作量估算。',
+    inputs: ['参与者数量和复杂度', '用例数量和复杂度', 'TCF 因子', 'EF 因子'],
+    outputs: ['UUCP', 'UCP', '工作量(人时/人月)'],
+  },
+  {
+    key: 'loc',
+    title: '代码行度量',
+    subtitle: 'LOC Metrics',
+    description: '面向 Java/Python/C++ 统计物理行、逻辑行、注释率与空白行。',
+    inputs: ['项目目录或单文件', '语言类型', '统计粒度'],
+    outputs: ['总行数', '逻辑代码行', '注释率'],
+  },
+  {
+    key: 'oo',
+    title: '面向对象度量',
+    subtitle: 'OO Metrics (CK/LK)',
+    description: '基于 AST 解析类结构、继承关系与调用关系，输出 CK/LK 指标。',
+    inputs: ['Java 源码', '类图/UML 文件', '项目参数(可选)'],
+    outputs: ['WMC/DIT/NOC/CBO/RFC/LCOM', '风险雷达图', '类级明细'],
+  },
+  {
+    key: 'fp',
+    title: '功能点度量',
+    subtitle: 'Function Points',
+    description: '输入五大信息域与 14 个 GSC，输出 UFP/VAF/FP 与 LOC 估算。',
+    inputs: ['ILF/EIF/EI/EO/EQ', '复杂度级别', '14 项 GSC 打分'],
+    outputs: ['UFP', 'VAF', 'FP 与 LOC 估算'],
+  },
+  {
+    key: 'cfg',
+    title: '控制流与复杂度',
+    subtitle: 'CFG & Cyclomatic Complexity',
+    description: '构建控制流图并计算 McCabe 复杂度 V(G)=E-N+2。',
+    inputs: ['代码片段或函数', '流程图描述', '节点和边(可选手工)'],
+    outputs: ['控制流图', '圈复杂度', '高风险路径提示'],
+  },
+]
+
+const activeModule = computed(() => modules.find((item) => item.key === activeNav.value) ?? modules[2])
+
+function switchNav(target) {
+  activeNav.value = target
+}
+</script>
+
 <template>
   <div class="dashboard-shell">
     <aside class="sidebar">
@@ -5,23 +61,54 @@
         <p class="brand-kicker">SoftQuant Lab</p>
         <h1>软件度量操作台</h1>
         <p class="brand-copy">
-          面向课程实验的自动化质量分析平台，覆盖设计、编码与评估阶段的多类软件实体。
+          面向课程实验的自动化度量平台，主界面聚焦五个核心功能模块。
         </p>
       </div>
 
       <nav class="sidebar-nav">
-        <a class="nav-item nav-item-active" href="#">总览仪表盘</a>
-        <a class="nav-item" href="#">代码度量</a>
-        <a class="nav-item" href="#">设计图分析</a>
-        <a class="nav-item" href="#">工作量评估</a>
-        <a class="nav-item" href="#">报告中心</a>
-        <a class="nav-item" href="#">系统设置</a>
+        <button
+          class="nav-item"
+          :class="{ 'nav-item-active': activeNav === 'ucp' }"
+          @click="switchNav('ucp')"
+        >
+          用例点度量
+        </button>
+        <button
+          class="nav-item"
+          :class="{ 'nav-item-active': activeNav === 'loc' }"
+          @click="switchNav('loc')"
+        >
+          代码行度量
+        </button>
+        <button
+          class="nav-item"
+          :class="{ 'nav-item-active': activeNav === 'oo' }"
+          @click="switchNav('oo')"
+        >
+          面向对象度量
+        </button>
+        <button
+          class="nav-item"
+          :class="{ 'nav-item-active': activeNav === 'fp' }"
+          @click="switchNav('fp')"
+        >
+          功能点度量
+        </button>
+        <button
+          class="nav-item"
+          :class="{ 'nav-item-active': activeNav === 'cfg' }"
+          @click="switchNav('cfg')"
+        >
+          控制流与复杂度
+        </button>
       </nav>
 
       <section class="sidebar-panel">
-        <p class="panel-label">实验目标</p>
+        <p class="panel-label">当前模块</p>
         <p class="panel-text">
-          优先支持 CK、LK、LoC、圈复杂度，并逐步扩展到用例、功能点和成本估算。
+          {{ activeModule.title }}
+          <br />
+          {{ activeModule.subtitle }}
         </p>
       </section>
     </aside>
@@ -29,137 +116,67 @@
     <main class="workspace">
       <header class="hero-panel">
         <div>
-          <p class="eyebrow">Course Experiment Dashboard</p>
-          <h2>把度量任务拆成清晰的输入、分析与报告流程</h2>
+          <p class="eyebrow">Automated Metrics Tool</p>
+          <h2>{{ activeModule.title }}</h2>
           <p class="lead">
-            先搭好前端操作台，后续我们可以把 Java 源码分析、类图解析、用例度量、工时预测等能力逐个接入。
+            {{ activeModule.description }}
           </p>
-        </div>
-
-        <div class="hero-actions">
-          <button class="primary-button">新建分析任务</button>
-          <button class="secondary-button">导入实验样例</button>
         </div>
       </header>
 
-      <section class="stats-grid">
-        <article class="stat-card accent-blue">
-          <p class="stat-label">待接入核心模型</p>
-          <strong>CK / LK / LoC / CC</strong>
-          <span>类耦合、继承深度、代码规模、圈复杂度</span>
-        </article>
-        <article class="stat-card accent-gold">
-          <p class="stat-label">支持输入源</p>
-          <strong>4 类</strong>
-          <span>代码、类图、流程图、用例图</span>
-        </article>
-        <article class="stat-card accent-green">
-          <p class="stat-label">目标软件实体</p>
-          <strong>规模 / 成本 / 工时</strong>
-          <span>支持质量评估与项目预测</span>
-        </article>
-        <article class="stat-card accent-rose">
-          <p class="stat-label">当前阶段</p>
-          <strong>前端框架初始化</strong>
-          <span>准备逐步接入后端分析能力</span>
-        </article>
-      </section>
+      <CkWorkbench v-if="activeNav === 'oo'" />
 
-      <section class="content-grid">
-        <article class="feature-panel">
-          <div class="panel-head">
-            <p class="eyebrow">Metric Modules</p>
-            <h3>度量能力入口</h3>
-          </div>
-          <div class="module-grid">
-            <div class="module-card">
-              <span class="module-badge">OO</span>
-              <h4>面向对象度量</h4>
-              <p>CK 模型、LK 模型、类关系与结构质量分析。</p>
-            </div>
-            <div class="module-card">
-              <span class="module-badge">CODE</span>
-              <h4>传统代码指标</h4>
-              <p>LoC、圈复杂度、方法数量、注释率等基础统计。</p>
-            </div>
-            <div class="module-card">
-              <span class="module-badge">DESIGN</span>
-              <h4>设计阶段输入</h4>
-              <p>面向类图、流程图、用例图的结构化录入与解析。</p>
-            </div>
-            <div class="module-card">
-              <span class="module-badge">PLAN</span>
-              <h4>成本与工时估算</h4>
-              <p>结合规模、人员与阶段输入生成实验报告依据。</p>
-            </div>
-          </div>
-        </article>
+      <template v-else>
+        <section class="stats-grid">
+          <article class="stat-card accent-blue">
+            <p class="stat-label">主要输入</p>
+            <strong>{{ activeModule.inputs[0] }}</strong>
+            <span>{{ activeModule.inputs[1] }}</span>
+          </article>
+          <article class="stat-card accent-gold">
+            <p class="stat-label">扩展输入</p>
+            <strong>{{ activeModule.inputs[2] }}</strong>
+            <span>{{ activeModule.inputs[3] ?? '更多参数可配置' }}</span>
+          </article>
+          <article class="stat-card accent-green">
+            <p class="stat-label">输出结果</p>
+            <strong>{{ activeModule.outputs[0] }}</strong>
+            <span>{{ activeModule.outputs[1] }}</span>
+          </article>
+          <article class="stat-card accent-rose">
+            <p class="stat-label">工程状态</p>
+            <strong>模块 UI 已规划</strong>
+            <span>{{ activeModule.outputs[2] }}</span>
+          </article>
+        </section>
 
-        <article class="feature-panel">
-          <div class="panel-head">
-            <p class="eyebrow">Input Sources</p>
-            <h3>输入数据面板</h3>
-          </div>
-          <ul class="source-list">
-            <li>
-              <strong>程序代码</strong>
-              <span>上传 Java 项目或粘贴代码片段，后续接 AST 分析。</span>
-            </li>
-            <li>
-              <strong>类图 / UML</strong>
-              <span>支持手动录入或文件导入，作为结构度量依据。</span>
-            </li>
-            <li>
-              <strong>流程图 / 用例图</strong>
-              <span>用于功能规模、复杂性与场景覆盖分析。</span>
-            </li>
-            <li>
-              <strong>人员与工期参数</strong>
-              <span>为工作量、成本、开发时间估算提供输入。</span>
-            </li>
-          </ul>
-        </article>
-
-        <article class="feature-panel">
-          <div class="panel-head">
-            <p class="eyebrow">Workflow</p>
-            <h3>实验执行流程</h3>
-          </div>
-          <ol class="flow-list">
-            <li>创建一次分析任务，选择度量目标和输入类型。</li>
-            <li>上传代码或设计图，补充项目规模与人员信息。</li>
-            <li>调用后端分析器，生成面向课程要求的度量结果。</li>
-            <li>在报告中心查看图表、评分和结论摘要。</li>
-          </ol>
-        </article>
-
-        <article class="feature-panel">
-          <div class="panel-head">
-            <p class="eyebrow">Task Queue</p>
-            <h3>任务与报告</h3>
-          </div>
-          <div class="report-card">
-            <p class="report-title">Java 项目静态分析实验</p>
-            <p class="report-meta">状态：待实现后端接入</p>
-            <div class="progress-track">
-              <div class="progress-bar"></div>
+        <section class="content-grid">
+          <article class="feature-panel">
+            <div class="panel-head">
+              <p class="eyebrow">Input Design</p>
+              <h3>建议输入表单</h3>
             </div>
-            <div class="report-tags">
-              <span>CK</span>
-              <span>LK</span>
-              <span>LoC</span>
-              <span>Complexity</span>
+            <ul class="source-list">
+              <li v-for="item in activeModule.inputs" :key="item">
+                <strong>{{ item }}</strong>
+                <span>建议提供文本录入 + 文件导入两种方式，便于演示与批量处理。</span>
+              </li>
+            </ul>
+          </article>
+          <article class="feature-panel">
+            <div class="panel-head">
+              <p class="eyebrow">Output Design</p>
+              <h3>建议输出展示</h3>
             </div>
-          </div>
-
-          <div class="note-card">
-            <p class="panel-label">下一步建议</p>
-            <p class="panel-text">
-              优先做“上传 Java 项目 + 返回基础指标卡片”这一条链路，最容易形成可演示成果。
-            </p>
-          </div>
-        </article>
-      </section>
+            <ul class="source-list">
+              <li v-for="item in activeModule.outputs" :key="item">
+                <strong>{{ item }}</strong>
+                <span>建议同时提供指标卡片、图表可视化和结果明细表，提升可解释性。</span>
+              </li>
+            </ul>
+          </article>
+        </section>
+      </template>
     </main>
   </div>
 </template>
