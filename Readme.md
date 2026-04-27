@@ -14,3 +14,8 @@ mvn spring-boot:run
 cd frontend
 npm run dev
 ```
+
+# 项目介绍
+
+CSU软件质量课程实验
+老师：杨柳
