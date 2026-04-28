@@ -102,15 +102,6 @@ function switchNav(target) {
           控制流与复杂度
         </button>
       </nav>
-
-      <section class="sidebar-panel">
-        <p class="panel-label">当前模块</p>
-        <p class="panel-text">
-          {{ activeModule.title }}
-          <br />
-          {{ activeModule.subtitle }}
-        </p>
-      </section>
     </aside>
 
     <main class="workspace">
