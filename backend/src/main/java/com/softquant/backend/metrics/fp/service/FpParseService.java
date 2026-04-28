@@ -178,19 +178,41 @@ public class FpParseService {
             Map<String, DataNode> dataMap,
             Map<String, FpParseResponse.EvidenceLine> evidenceByCode) {
         List<FpParseResponse.FlowPreview> flows = new ArrayList<>();
+        Map<String, FlowEndpoints> flowSymbolEndpoints =
+                extractFlowSymbolEndpoints(document, processMap, externalEntityMap);
 
         for (Element flow : document.descendants("Flow")) {
             if (!flow.hasAttribute("Id")) {
                 continue;
             }
-            flows.add(buildFlowPreview(document, flow, "FLOW", processMap, externalEntityMap, dataStoreMap, dataMap, evidenceByCode));
+            flows.add(buildFlowPreview(
+                    document,
+                    flow,
+                    "FLOW",
+                    flowSymbolEndpoints,
+                    processMap,
+                    externalEntityMap,
+                    dataStoreMap,
+                    dataMap,
+                    evidenceByCode
+            ));
         }
 
         for (Element flow : document.descendants("ResourceFlow")) {
             if (!flow.hasAttribute("Id")) {
                 continue;
             }
-            flows.add(buildFlowPreview(document, flow, "RESOURCE_FLOW", processMap, externalEntityMap, dataStoreMap, dataMap, evidenceByCode));
+            flows.add(buildFlowPreview(
+                    document,
+                    flow,
+                    "RESOURCE_FLOW",
+                    flowSymbolEndpoints,
+                    processMap,
+                    externalEntityMap,
+                    dataStoreMap,
+                    dataMap,
+                    evidenceByCode
+            ));
         }
 
         flows.sort(Comparator.comparing(FpParseResponse.FlowPreview::getFlowId));
@@ -201,6 +223,7 @@ public class FpParseService {
             PowerDesignerXmlSupport.ParsedDocument document,
             Element flow,
             String flowType,
+            Map<String, FlowEndpoints> flowSymbolEndpoints,
             Map<String, ProcessNode> processMap,
             Map<String, ExternalEntityNode> externalEntityMap,
             Map<String, DataStoreNode> dataStoreMap,
@@ -210,8 +233,14 @@ public class FpParseService {
         FlowEndpoint target;
 
         if ("FLOW".equals(flowType)) {
-            source = resolveGeneralEndpoint(document, document.requireChild(flow, "Object1"), processMap, externalEntityMap);
-            target = resolveGeneralEndpoint(document, document.requireChild(flow, "Object2"), processMap, externalEntityMap);
+            FlowEndpoints endpoints = flowSymbolEndpoints.get(flow.getAttribute("Id"));
+            if (endpoints == null) {
+                source = resolveGeneralEndpoint(document, document.requireChild(flow, "Object1"), processMap, externalEntityMap);
+                target = resolveGeneralEndpoint(document, document.requireChild(flow, "Object2"), processMap, externalEntityMap);
+            } else {
+                source = endpoints.source();
+                target = endpoints.target();
+            }
         } else {
             source = resolveResourceFlowSource(document, flow, processMap, dataStoreMap);
             target = resolveResourceFlowTarget(document, flow, processMap, dataStoreMap);
@@ -303,10 +332,25 @@ public class FpParseService {
                 candidates.put(candidateId, candidate(
                         candidateId,
                         "EQ",
-                        flow.getSourceName() + " 查询",
+                        flow.getTargetName() + " 查询",
                         flow.getDataIds().size(),
                         null,
-                        countReferencedStoresForProcess(flow.getSourceId(), flows),
+                        countReferencedStoresForProcessPair(flow.getSourceId(), flow.getTargetId(), flows),
+                        flow.getEvidenceCodes()
+                ));
+            }
+
+            if ("RESOURCE_FLOW".equals(flow.getFlowType())
+                    && "DATA_STORE".equals(flow.getSourceType())
+                    && "PROCESS".equals(flow.getTargetType())) {
+                String candidateId = "CAND_EO_" + flow.getFlowId();
+                candidates.put(candidateId, candidate(
+                        candidateId,
+                        "EO",
+                        flow.getTargetName() + " 输出",
+                        flow.getDataIds().size(),
+                        null,
+                        countReferencedStoresForProcess(flow.getTargetId(), flows),
                         flow.getEvidenceCodes()
                 ));
             }
@@ -358,6 +402,56 @@ public class FpParseService {
                 ))
         ));
         return details;
+    }
+
+    private Map<String, FlowEndpoints> extractFlowSymbolEndpoints(
+            PowerDesignerXmlSupport.ParsedDocument document,
+            Map<String, ProcessNode> processMap,
+            Map<String, ExternalEntityNode> externalEntityMap) {
+        Map<String, FlowEndpoints> endpointsByFlowId = new LinkedHashMap<>();
+        for (Element symbol : document.descendants("FlowSymbol")) {
+            Element objectHolder = document.requireChild(symbol, "Object");
+            List<Element> flowRefs = document.children(objectHolder, "Flow");
+            if (flowRefs.isEmpty()) {
+                continue;
+            }
+
+            Element flow = document.refResolver().resolveRequired(flowRefs.get(0), "Flow");
+            FlowEndpoint source = resolveFlowSymbolEndpoint(
+                    document,
+                    document.requireChild(symbol, "SourceSymbol"),
+                    processMap,
+                    externalEntityMap
+            );
+            FlowEndpoint target = resolveFlowSymbolEndpoint(
+                    document,
+                    document.requireChild(symbol, "DestinationSymbol"),
+                    processMap,
+                    externalEntityMap
+            );
+            endpointsByFlowId.put(flow.getAttribute("Id"), new FlowEndpoints(source, target));
+        }
+        return endpointsByFlowId;
+    }
+
+    private FlowEndpoint resolveFlowSymbolEndpoint(
+            PowerDesignerXmlSupport.ParsedDocument document,
+            Element symbolHolder,
+            Map<String, ProcessNode> processMap,
+            Map<String, ExternalEntityNode> externalEntityMap) {
+        List<Element> processSymbols = document.children(symbolHolder, "ProcessSymbol");
+        if (!processSymbols.isEmpty()) {
+            Element symbol = document.refResolver().resolveRequired(processSymbols.get(0), "ProcessSymbol");
+            return resolveGeneralEndpoint(document, document.requireChild(symbol, "Object"), processMap, externalEntityMap);
+        }
+
+        List<Element> entitySymbols = document.children(symbolHolder, "OrganizationUnitSymbol");
+        if (!entitySymbols.isEmpty()) {
+            Element symbol = document.refResolver().resolveRequired(entitySymbols.get(0), "OrganizationUnitSymbol");
+            return resolveGeneralEndpoint(document, document.requireChild(symbol, "Object"), processMap, externalEntityMap);
+        }
+
+        throw new ValidationException("Unsupported DFD flow symbol endpoint under " + symbolHolder.getLocalName());
     }
 
     private FlowEndpoint resolveGeneralEndpoint(
@@ -440,6 +534,30 @@ public class FpParseService {
             }
         }
         return stores.size();
+    }
+
+    private Integer countReferencedStoresForProcessPair(
+            String firstProcessId,
+            String secondProcessId,
+            List<FpParseResponse.FlowPreview> flows) {
+        Set<String> stores = new LinkedHashSet<>();
+        collectReferencedStoresForProcess(firstProcessId, flows, stores);
+        collectReferencedStoresForProcess(secondProcessId, flows, stores);
+        return stores.size();
+    }
+
+    private void collectReferencedStoresForProcess(
+            String processId,
+            List<FpParseResponse.FlowPreview> flows,
+            Set<String> stores) {
+        for (FpParseResponse.FlowPreview flow : flows) {
+            if (processId.equals(flow.getSourceId()) && "DATA_STORE".equals(flow.getTargetType())) {
+                stores.add(flow.getTargetId());
+            }
+            if (processId.equals(flow.getTargetId()) && "DATA_STORE".equals(flow.getSourceType())) {
+                stores.add(flow.getSourceId());
+            }
+        }
     }
 
     private FpParseResponse.ComponentCandidate candidate(
@@ -564,5 +682,8 @@ public class FpParseService {
     }
 
     private record FlowEndpoint(String type, String id, String name) {
+    }
+
+    private record FlowEndpoints(FlowEndpoint source, FlowEndpoint target) {
     }
 }

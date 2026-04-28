@@ -276,7 +276,6 @@ function clamp(value, min, max) {
       </div>
       <div class="status-badges">
         <span class="status-pill status-pill-amber">候选识别 + 人工确认双阶段</span>
-        <span class="status-pill">课堂演示版</span>
       </div>
     </div>
 

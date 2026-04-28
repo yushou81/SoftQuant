@@ -314,7 +314,6 @@ function clamp(value, min, max) {
       </div>
       <div class="status-badges">
         <span class="status-pill status-pill-blue">解析结果 / 用户覆盖值 / 计算结果三层分离</span>
-        <span class="status-pill">课堂演示版</span>
       </div>
     </div>
 
