@@ -1,8 +1,10 @@
 <script setup>
 import { computed, ref } from 'vue'
 import CkWorkbench from './components/ck/CkWorkbench.vue'
+import FpWorkbench from './components/fp/FpWorkbench.vue'
+import UcpWorkbench from './components/ucp/UcpWorkbench.vue'
 
-const activeNav = ref('oo')
+const activeNav = ref('ucp')
 
 const modules = [
   {
@@ -47,7 +49,12 @@ const modules = [
   },
 ]
 
-const activeModule = computed(() => modules.find((item) => item.key === activeNav.value) ?? modules[2])
+const activeModule = computed(() => modules.find((item) => item.key === activeNav.value) ?? modules[0])
+const implementedModules = new Set(['ucp', 'oo', 'fp'])
+
+const activeModuleStatus = computed(() =>
+  implementedModules.has(activeNav.value) ? '工作台已接入' : '模块 UI 已规划',
+)
 
 function switchNav(target) {
   activeNav.value = target
@@ -115,7 +122,10 @@ function switchNav(target) {
         </div>
       </header>
 
-      <CkWorkbench v-if="activeNav === 'oo'" />
+      <!-- 已落地模块直接挂接真实工作台，未落地模块仍保留占位信息卡。 -->
+      <UcpWorkbench v-if="activeNav === 'ucp'" />
+      <FpWorkbench v-else-if="activeNav === 'fp'" />
+      <CkWorkbench v-else-if="activeNav === 'oo'" />
 
       <template v-else>
         <section class="stats-grid">
@@ -136,7 +146,7 @@ function switchNav(target) {
           </article>
           <article class="stat-card accent-rose">
             <p class="stat-label">工程状态</p>
-            <strong>模块 UI 已规划</strong>
+            <strong>{{ activeModuleStatus }}</strong>
             <span>{{ activeModule.outputs[2] }}</span>
           </article>
         </section>
