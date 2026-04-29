@@ -18,8 +18,10 @@ import com.softquant.backend.metrics.common.dto.AnalysisResponse;
 import com.softquant.backend.metrics.common.dto.ClassMetrics;
 import com.softquant.backend.metrics.common.dto.JavaSourceInput;
 import com.softquant.backend.metrics.common.strategy.MetricStrategy;
+import com.softquant.backend.metrics.consistency.ClassDescriptor;
 import com.softquant.backend.metrics.consistency.ConsistencyAnalyzer;
 import com.softquant.backend.metrics.consistency.ConsistencyResult;
+import com.softquant.backend.metrics.consistency.XmiParser;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -34,9 +36,11 @@ import org.springframework.stereotype.Component;
 public class CkMetricStrategy implements MetricStrategy {
 
     private final ConsistencyAnalyzer consistencyAnalyzer;
+    private final XmiParser xmiParser;
 
-    public CkMetricStrategy(ConsistencyAnalyzer consistencyAnalyzer) {
+    public CkMetricStrategy(ConsistencyAnalyzer consistencyAnalyzer, XmiParser xmiParser) {
         this.consistencyAnalyzer = consistencyAnalyzer;
+        this.xmiParser = xmiParser;
     }
 
     @Override
@@ -48,14 +52,23 @@ public class CkMetricStrategy implements MetricStrategy {
     public AnalysisResponse analyze(AnalysisRequest request) {
         Map<String, ClassSnapshot> fullMap = new HashMap<>();
         Map<String, ClassSnapshot> publicMap = new HashMap<>();
-        for (JavaSourceInput source : request.getSources()) {
-            CompilationUnit unit = StaticJavaParser.parse(source.getContent());
-            unit.findAll(ClassOrInterfaceDeclaration.class).forEach(node -> {
-                ClassSnapshot snapshot = collectClassSnapshot(node);
-                fullMap.put(snapshot.className, snapshot);
-                if (node.isPublic()) {
+
+        boolean hasSources = request.getSources() != null && !request.getSources().isEmpty();
+        if (hasSources) {
+            for (JavaSourceInput source : request.getSources()) {
+                CompilationUnit unit = StaticJavaParser.parse(source.getContent());
+                unit.findAll(ClassOrInterfaceDeclaration.class).forEach(node -> {
+                    ClassSnapshot snapshot = collectClassSnapshot(node);
+                    fullMap.put(snapshot.className, snapshot);
                     publicMap.put(snapshot.className, snapshot);
-                }
+                });
+            }
+        } else if (request.getClassDiagramText() != null && request.getClassDiagramText().trim().startsWith("<")) {
+            Map<String, ClassDescriptor> xmiClasses = xmiParser.parse(request.getClassDiagramText().trim());
+            xmiClasses.values().forEach(descriptor -> {
+                ClassSnapshot snapshot = snapshotFromDescriptor(descriptor);
+                fullMap.put(snapshot.className, snapshot);
+                publicMap.put(snapshot.className, snapshot);
             });
         }
 
@@ -88,6 +101,19 @@ public class CkMetricStrategy implements MetricStrategy {
 
         declaration.getFields().forEach(field -> collectFieldInfo(field, snapshot));
         declaration.getMethods().forEach(method -> collectMethodInfo(method, snapshot));
+        return snapshot;
+    }
+
+    private ClassSnapshot snapshotFromDescriptor(ClassDescriptor descriptor) {
+        ClassSnapshot snapshot = new ClassSnapshot();
+        snapshot.className = descriptor.getClassName();
+        snapshot.superClassName = descriptor.getSuperClass();
+        snapshot.fieldNames.addAll(descriptor.getFields());
+        for (String methodName : descriptor.getMethods()) {
+            MethodSnapshot ms = new MethodSnapshot();
+            ms.name = methodName;
+            snapshot.methods.add(ms);
+        }
         return snapshot;
     }
 

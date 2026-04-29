@@ -36,8 +36,8 @@ class FpParseServiceTest {
         assertThat(response.getDataStores()).hasSize(1);
         assertThat(response.getDataElements()).hasSize(3);
         assertThat(response.getFlows()).hasSize(4);
-        assertThat(response.getComponentCandidates()).hasSize(3);
-        assertThat(response.getPendingFields()).hasSize(3);
+        assertThat(response.getComponentCandidates()).hasSize(4);
+        assertThat(response.getPendingFields()).hasSize(4);
         assertThat(response.getProcessDetails().getCards()).hasSize(5);
         assertThat(response.getProcessDetails().getTables()).hasSize(2);
 
@@ -45,9 +45,35 @@ class FpParseServiceTest {
                 .extracting(candidate -> candidate.getComponentType() + ":" + candidate.getName())
                 .contains(
                         "ILF:消息",
-                        "EO:生成消息 输出",
+                        "EI:生成消息 输入",
+                        "EO:查看消息列表 输出",
                         "EQ:查看消息 查询"
                 );
+        assertThat(response.getComponentCandidates())
+                .anySatisfy(candidate -> {
+                    assertThat(candidate.getComponentType()).isEqualTo("ILF");
+                    assertThat(candidate.getName()).isEqualTo("消息");
+                    assertThat(candidate.getDet()).isEqualTo(1);
+                    assertThat(candidate.getRet()).isEqualTo(1);
+                })
+                .anySatisfy(candidate -> {
+                    assertThat(candidate.getComponentType()).isEqualTo("EI");
+                    assertThat(candidate.getName()).isEqualTo("生成消息 输入");
+                    assertThat(candidate.getDet()).isEqualTo(2);
+                    assertThat(candidate.getFtr()).isEqualTo(1);
+                })
+                .anySatisfy(candidate -> {
+                    assertThat(candidate.getComponentType()).isEqualTo("EO");
+                    assertThat(candidate.getName()).isEqualTo("查看消息列表 输出");
+                    assertThat(candidate.getDet()).isEqualTo(1);
+                    assertThat(candidate.getFtr()).isEqualTo(1);
+                })
+                .anySatisfy(candidate -> {
+                    assertThat(candidate.getComponentType()).isEqualTo("EQ");
+                    assertThat(candidate.getName()).isEqualTo("查看消息 查询");
+                    assertThat(candidate.getDet()).isEqualTo(1);
+                    assertThat(candidate.getFtr()).isEqualTo(1);
+                });
     }
 
     @Test

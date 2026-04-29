@@ -15,7 +15,6 @@ public class AnalysisRequest {
     private Integer estimateWeeks;
 
     @Valid
-    @NotEmpty(message = "sources must not be empty")
     private List<JavaSourceInput> sources;
 
     public String getProjectName() {

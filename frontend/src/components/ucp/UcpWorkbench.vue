@@ -83,7 +83,6 @@ const parseSummary = computed(() => {
       { label: 'Actor', value: '0' },
       { label: 'UseCase', value: '0' },
       { label: '关系边', value: '0' },
-      { label: '待补录项', value: '0' },
     ]
   }
 
@@ -91,7 +90,6 @@ const parseSummary = computed(() => {
     { label: 'Actor', value: String(parseResult.value.actors.length) },
     { label: 'UseCase', value: String(parseResult.value.useCases.length) },
     { label: '关系边', value: String(parseResult.value.relationships.length) },
-    { label: '待补录项', value: String(parseResult.value.pendingFields.length) },
   ]
 })
 
@@ -101,26 +99,6 @@ const technicalFactorScore = computed(() =>
 const environmentalFactorScore = computed(() =>
   environmentalFactors.value.reduce((total, item) => total + item.weightedScore, 0),
 )
-
-const groupedPendingFields = computed(() => {
-  if (!parseResult.value) {
-    return []
-  }
-
-  const grouped = new Map()
-  for (const item of parseResult.value.pendingFields) {
-    if (!grouped.has(item.entityId)) {
-      grouped.set(item.entityId, { entityName: item.entityName, reasons: [] })
-    }
-    grouped.get(item.entityId).reasons.push(item.reason)
-  }
-
-  return [...grouped.entries()].map(([entityId, value]) => ({
-    entityId,
-    entityName: value.entityName,
-    reasons: value.reasons,
-  }))
-})
 
 async function handleXmlFileChange(event) {
   const file = event.target.files?.[0]
@@ -178,15 +156,7 @@ async function executeParse() {
       selectedWeight: actor.suggestedWeight,
       dirty: false,
     }))
-    useCaseDrafts.value = data.useCases.map((item) => ({
-      ...item,
-      selectedComplexity: item.suggestedComplexity,
-      selectedWeight: item.suggestedWeight,
-      entityCount: item.entityCount ?? 0,
-      stepCount: item.stepCount ?? 0,
-      classCount: item.classCount ?? 0,
-      dirty: false,
-    }))
+    useCaseDrafts.value = data.useCases.map((item) => buildUseCaseDraft(item))
     technicalFactors.value = buildFactorDrafts(technicalFactorBlueprint)
     environmentalFactors.value = buildFactorDrafts(environmentalFactorBlueprint)
     activeStep.value = 1
@@ -204,14 +174,11 @@ function updateActorComplexity(actor, value) {
   actor.dirty = true
 }
 
-function updateUseCaseComplexity(useCase, value) {
-  useCase.selectedComplexity = value
-  useCase.selectedWeight = useCaseOptions.find((item) => item.value === value)?.weight ?? useCase.selectedWeight
+function updateUseCaseMetric(useCase, field, rawValue) {
+  const value = Number(rawValue)
+  useCase[field] = Number.isFinite(value) ? Math.max(value, 0) : 0
+  applyUseCaseComplexity(useCase)
   useCase.dirty = true
-}
-
-function markDirty(target) {
-  target.dirty = true
 }
 
 function updateFactorScore(target, rawValue) {
@@ -300,6 +267,42 @@ function buildFactorDrafts(blueprint) {
   }))
 }
 
+function buildUseCaseDraft(item) {
+  const draft = {
+    ...item,
+    entityCount: item.entityCount ?? 0,
+    stepCount: item.stepCount ?? 0,
+    classCount: item.classCount ?? 0,
+    dirty: false,
+  }
+  applyUseCaseComplexity(draft)
+  return draft
+}
+
+function applyUseCaseComplexity(useCase) {
+  const complexity = inferUseCaseComplexity(useCase)
+  useCase.selectedComplexity = complexity
+  useCase.selectedWeight = useCaseOptions.find((item) => item.value === complexity)?.weight ?? 5
+}
+
+function inferUseCaseComplexity(useCase) {
+  const entityCount = Number(useCase.entityCount) || 0
+  const stepCount = Number(useCase.stepCount) || 0
+  const classCount = Number(useCase.classCount) || 0
+
+  if (entityCount >= 3 || stepCount >= 8 || classCount >= 11) {
+    return 'COMPLEX'
+  }
+  if (entityCount === 2 || (stepCount >= 4 && stepCount <= 7) || (classCount >= 5 && classCount <= 10)) {
+    return 'AVERAGE'
+  }
+  return 'SIMPLE'
+}
+
+function formatComplexityLabel(value, options) {
+  return options.find((item) => item.value === value)?.label ?? value
+}
+
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max)
 }
@@ -314,7 +317,6 @@ function clamp(value, min, max) {
       </div>
       <div class="status-badges">
         <span class="status-pill status-pill-blue">解析结果 / 用户覆盖值 / 计算结果三层分离</span>
-        <span class="status-pill">课堂演示版</span>
       </div>
     </div>
 
@@ -445,7 +447,7 @@ function clamp(value, min, max) {
                     </select>
                   </td>
                   <td>
-                    <input v-model.number="actor.selectedWeight" min="1" max="3" type="number" @input="markDirty(actor)" />
+                    <span class="readonly-value">{{ actor.selectedWeight }}</span>
                   </td>
                   <td>{{ actor.evidenceCodes.join(' / ') }}</td>
                 </tr>
@@ -478,15 +480,13 @@ function clamp(value, min, max) {
               <tbody>
                 <tr v-for="useCase in useCaseDrafts" :key="useCase.useCaseId" :class="{ 'row-dirty': useCase.dirty }">
                   <td>{{ useCase.useCaseName }}</td>
-                  <td><input v-model.number="useCase.entityCount" min="0" type="number" @input="markDirty(useCase)" /></td>
-                  <td><input v-model.number="useCase.stepCount" min="0" type="number" @input="markDirty(useCase)" /></td>
-                  <td><input v-model.number="useCase.classCount" min="0" type="number" @input="markDirty(useCase)" /></td>
+                  <td><input :value="useCase.entityCount" min="0" type="number" @input="updateUseCaseMetric(useCase, 'entityCount', $event.target.value)" /></td>
+                  <td><input :value="useCase.stepCount" min="0" type="number" @input="updateUseCaseMetric(useCase, 'stepCount', $event.target.value)" /></td>
+                  <td><input :value="useCase.classCount" min="0" type="number" @input="updateUseCaseMetric(useCase, 'classCount', $event.target.value)" /></td>
                   <td>
-                    <select :value="useCase.selectedComplexity" @change="updateUseCaseComplexity(useCase, $event.target.value)">
-                      <option v-for="option in useCaseOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                    </select>
+                    <span class="readonly-value">{{ formatComplexityLabel(useCase.selectedComplexity, useCaseOptions) }}</span>
                   </td>
-                  <td><input v-model.number="useCase.selectedWeight" min="5" max="15" step="5" type="number" @input="markDirty(useCase)" /></td>
+                  <td><span class="readonly-value">{{ useCase.selectedWeight }}</span></td>
                   <td>{{ useCase.evidenceCodes.join(' / ') }}</td>
                 </tr>
               </tbody>
@@ -494,20 +494,6 @@ function clamp(value, min, max) {
           </div>
         </article>
 
-        <article class="surface-card">
-          <div class="panel-head compact-head">
-            <div>
-              <p class="eyebrow">Pending</p>
-              <h4>待补录提示</h4>
-            </div>
-          </div>
-          <ul class="bullet-list compact-list">
-            <li v-for="item in groupedPendingFields" :key="item.entityId">
-              <strong>{{ item.entityName }}</strong>
-              <span>{{ item.reasons.join('；') }}</span>
-            </li>
-          </ul>
-        </article>
       </section>
     </template>
 
@@ -775,7 +761,7 @@ function clamp(value, min, max) {
 }
 
 .workbench-stats {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .workspace-grid {
@@ -893,6 +879,14 @@ th {
 
 .row-dirty {
   background: rgba(56, 189, 248, 0.08);
+}
+
+.readonly-value {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  color: #334155;
+  font-weight: 600;
 }
 
 .bullet-list {

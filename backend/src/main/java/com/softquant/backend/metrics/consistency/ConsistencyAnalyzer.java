@@ -6,6 +6,7 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.softquant.backend.metrics.common.dto.AnalysisRequest;
 import com.softquant.backend.metrics.common.dto.JavaSourceInput;
+import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -14,7 +15,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.xml.parsers.DocumentBuilderFactory;
 import org.springframework.stereotype.Component;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
 
 @Component
 public class ConsistencyAnalyzer {
@@ -24,6 +30,12 @@ public class ConsistencyAnalyzer {
     private static final Pattern METHOD_LINE = Pattern.compile("[+#~-]?\\s*(\\w+)\\s*\\(");
     private static final Pattern FIELD_LINE = Pattern.compile("[+#~-]?\\s*(\\w+)\\s*(?::|$)");
 
+    private final XmiParser xmiParser;
+
+    public ConsistencyAnalyzer(XmiParser xmiParser) {
+        this.xmiParser = xmiParser;
+    }
+
     public ConsistencyResult analyze(AnalysisRequest request) {
         Map<String, ClassDescriptor> impl = parseImplementation(request.getSources());
         Map<String, ClassDescriptor> design = parseDesign(request.getClassDiagramText());
@@ -32,6 +44,9 @@ public class ConsistencyAnalyzer {
 
     private Map<String, ClassDescriptor> parseImplementation(List<JavaSourceInput> sources) {
         Map<String, ClassDescriptor> map = new HashMap<>();
+        if (sources == null || sources.isEmpty()) {
+            return map;
+        }
         for (JavaSourceInput source : sources) {
             CompilationUnit unit = StaticJavaParser.parse(source.getContent());
             for (ClassOrInterfaceDeclaration cls : unit.findAll(ClassOrInterfaceDeclaration.class)) {
@@ -61,7 +76,16 @@ public class ConsistencyAnalyzer {
         if (classDiagramText == null || classDiagramText.isBlank()) {
             return map;
         }
-        String[] lines = classDiagramText.split("\\R");
+        String trimmed = classDiagramText.trim();
+        if (trimmed.startsWith("<")) {
+            return xmiParser.parse(trimmed);
+        }
+        return parsePlantUml(trimmed);
+    }
+
+    private Map<String, ClassDescriptor> parsePlantUml(String text) {
+        Map<String, ClassDescriptor> map = new HashMap<>();
+        String[] lines = text.split("\\R");
         ClassDescriptor current = null;
         for (String rawLine : lines) {
             String line = rawLine.trim();
@@ -125,6 +149,13 @@ public class ConsistencyAnalyzer {
             result.setMethodDriftRate(0);
             result.setInheritanceConsistency(100);
             result.setIssues(List.of("未提供可解析的类图，已跳过一致性比对。"));
+            return result;
+        }
+        if (impl.isEmpty()) {
+            result.setClassCoverage(0);
+            result.setMethodDriftRate(0);
+            result.setInheritanceConsistency(0);
+            result.setIssues(List.of("未提供 Java 源码，已跳过一致性比对。"));
             return result;
         }
 

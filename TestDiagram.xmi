@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xmi:XMI xmlns:xmi="http://www.omg.org/XMI"
+         xmlns:uml="http://www.eclipse.org/uml2/5.0.0/UML"
+         xmi:version="2.1">
+  <uml:Model xmi:id="model_1" name="SoftQuantModel">
+
+    <!-- 继承链基类 -->
+    <packagedElement xmi:type="uml:Class" xmi:id="cls_CoreObject" name="CoreObject"/>
+
+    <packagedElement xmi:type="uml:Class" xmi:id="cls_BaseSystemEntity" name="BaseSystemEntity">
+      <generalization xmi:id="gen_1" specific="cls_BaseSystemEntity" general="cls_CoreObject"/>
+    </packagedElement>
+
+    <packagedElement xmi:type="uml:Class" xmi:id="cls_AbstractEnterpriseModule" name="AbstractEnterpriseModule">
+      <generalization xmi:id="gen_2" specific="cls_AbstractEnterpriseModule" general="cls_BaseSystemEntity"/>
+    </packagedElement>
+
+    <!-- 主类 -->
+    <packagedElement xmi:type="uml:Class" xmi:id="cls_EnterpriseSystemGodClass" name="EnterpriseSystemGodClass">
+      <generalization xmi:id="gen_3" specific="cls_EnterpriseSystemGodClass" general="cls_AbstractEnterpriseModule"/>
+
+      <ownedAttribute xmi:id="attr_1" name="dbConnection"/>
+      <ownedAttribute xmi:id="attr_2" name="remoteApiUrl"/>
+      <ownedAttribute xmi:id="attr_3" name="localLogFile"/>
+      <ownedAttribute xmi:id="attr_4" name="threadLatch"/>
+      <ownedAttribute xmi:id="attr_5" name="financialBalance"/>
+      <ownedAttribute xmi:id="attr_6" name="cachedData"/>
+
+      <ownedOperation xmi:id="op_1" name="executeDatabaseSync"/>
+      <ownedOperation xmi:id="op_2" name="fetchRemoteConfig"/>
+      <ownedOperation xmi:id="op_3" name="flushLogsToDisk"/>
+      <ownedOperation xmi:id="op_4" name="releaseThreadLocks"/>
+      <ownedOperation xmi:id="op_5" name="calculateTax"/>
+      <ownedOperation xmi:id="op_6" name="clearCache"/>
+      <ownedOperation xmi:id="op_7" name="run"/>
+      <ownedOperation xmi:id="op_8" name="clone"/>
+      <ownedOperation xmi:id="op_9" name="processComplexBusinessLogic"/>
+    </packagedElement>
+
+    <!-- 子类 -->
+    <packagedElement xmi:type="uml:Class" xmi:id="cls_LegacySystemProxy" name="LegacySystemProxy">
+      <generalization xmi:id="gen_4" specific="cls_LegacySystemProxy" general="cls_EnterpriseSystemGodClass"/>
+    </packagedElement>
+
+    <packagedElement xmi:type="uml:Class" xmi:id="cls_CloudMigrationAdapter" name="CloudMigrationAdapter">
+      <generalization xmi:id="gen_5" specific="cls_CloudMigrationAdapter" general="cls_EnterpriseSystemGodClass"/>
+    </packagedElement>
+
+    <packagedElement xmi:type="uml:Class" xmi:id="cls_TestMockGodClass" name="TestMockGodClass">
+      <generalization xmi:id="gen_6" specific="cls_TestMockGodClass" general="cls_EnterpriseSystemGodClass"/>
+    </packagedElement>
+
+    <packagedElement xmi:type="uml:Class" xmi:id="cls_TemporaryFixSubclass" name="TemporaryFixSubclass">
+      <generalization xmi:id="gen_7" specific="cls_TemporaryFixSubclass" general="cls_EnterpriseSystemGodClass"/>
+    </packagedElement>
+
+  </uml:Model>
+</xmi:XMI>
