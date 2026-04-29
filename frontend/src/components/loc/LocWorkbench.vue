@@ -28,9 +28,26 @@ const loading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 const result = ref(null)
+const fileInputRef = ref(null)
+const folderInputRef = ref(null)
+const dropzoneActive = ref(false)
+const resultTab = ref('files')
+const fileSortKey = ref('codeLines')
+const fileSearch = ref('')
 
 const hasFiles = computed(() => selectedFiles.value.length > 0)
 const hasResult = computed(() => Boolean(result.value))
+const fileCountLabel = computed(() => `${selectedFiles.value.length} 个文件`)
+const skippedCountLabel = computed(() => (skippedFiles.value.length > 0 ? `跳过 ${skippedFiles.value.length}` : ''))
+
+const uploadLanguageSummary = computed(() => {
+  const summary = new Map()
+  for (const file of selectedFiles.value) {
+    const label = languageLabel(file.language)
+    summary.set(label, (summary.get(label) ?? 0) + 1)
+  }
+  return [...summary.entries()].map(([language, count]) => ({ language, count }))
+})
 
 const topCodeFiles = computed(() => {
   if (!result.value?.files) {
@@ -53,10 +70,103 @@ const composition = computed(() => {
   }))
 })
 
+const sortedSelectedFiles = computed(() =>
+  [...selectedFiles.value].sort((a, b) => a.fileName.localeCompare(b.fileName)),
+)
+
+const filteredResultFiles = computed(() => {
+  if (!result.value?.files) {
+    return []
+  }
+
+  const keyword = fileSearch.value.trim().toLowerCase()
+  const files = keyword
+    ? result.value.files.filter((file) => file.fileName.toLowerCase().includes(keyword))
+    : [...result.value.files]
+
+  const compareMap = {
+    codeLines: (a, b) => b.codeLines - a.codeLines,
+    logicalLines: (a, b) => b.logicalLines - a.logicalLines,
+    commentRate: (a, b) => (b.commentRate ?? 0) - (a.commentRate ?? 0),
+    fileName: (a, b) => a.fileName.localeCompare(b.fileName),
+  }
+
+  return files.sort(compareMap[fileSortKey.value] ?? compareMap.codeLines)
+})
+
+const overviewStats = computed(() => {
+  if (!result.value) {
+    return []
+  }
+
+  return [
+    {
+      label: '物理总行',
+      value: result.value.physicalLines,
+      meta: `${result.value.fileCount} 个文件`,
+      accent: 'blue',
+    },
+    {
+      label: '有效代码行',
+      value: result.value.codeLines,
+      meta: `混合行 ${result.value.mixedLines}`,
+      accent: 'green',
+    },
+    {
+      label: '注释率',
+      value: formatRate(result.value.commentRate),
+      meta: `纯注释 ${result.value.commentLines}`,
+      accent: 'gold',
+    },
+    {
+      label: '逻辑代码行',
+      value: result.value.logicalLines,
+      meta: 'Java AST / 其他文本统计',
+      accent: 'rose',
+    },
+  ]
+})
+
+const insightCards = computed(() => {
+  if (!result.value) {
+    return []
+  }
+
+  const mostCodeFile = [...result.value.files].sort((a, b) => b.codeLines - a.codeLines)[0]
+  const highestCommentFile = [...result.value.files].sort((a, b) => b.commentRate - a.commentRate)[0]
+
+  return [
+    {
+      label: '主导文件',
+      value: mostCodeFile ? mostCodeFile.fileName : '无',
+      meta: mostCodeFile ? `${mostCodeFile.codeLines} 行代码` : '',
+    },
+    {
+      label: '最高注释率',
+      value: highestCommentFile ? formatRate(highestCommentFile.commentRate) : '0.00%',
+      meta: highestCommentFile ? highestCommentFile.fileName : '',
+    },
+  ]
+})
+
 async function handleFilesChange(event) {
   const files = Array.from(event.target.files ?? [])
   await loadFiles(files)
   event.target.value = ''
+}
+
+async function handleDrop(event) {
+  dropzoneActive.value = false
+  const files = Array.from(event.dataTransfer?.files ?? [])
+  await loadFiles(files)
+}
+
+function openFilePicker() {
+  fileInputRef.value?.click()
+}
+
+function openFolderPicker() {
+  folderInputRef.value?.click()
 }
 
 async function loadFiles(files) {
@@ -227,91 +337,98 @@ function percentOfTotal(value, total) {
 </script>
 
 <template>
-  <section class="feature-panel">
-    <div class="panel-head">
-      <p class="eyebrow">LOC Metrics</p>
-      <h3>代码行度量模块</h3>
-    </div>
-    <p class="module-intro">
-      支持多文件上传，按项目、语言和单文件统计物理行、有效代码行、注释行、空白行、混合行与逻辑行。
-    </p>
-
-    <div class="module-tags">
-      <span class="tag tag-active">物理 LOC</span>
-      <span class="tag">逻辑 LOC</span>
-      <span class="tag">注释率</span>
-      <span class="tag">Java AST</span>
-      <span class="tag">多语言扫描</span>
+  <section class="feature-panel loc-shell">
+    <div class="panel-head loc-head">
+      <div>
+        <p class="eyebrow">LOC Metrics</p>
+        <h3>代码行分析工作台</h3>
+      </div>
+      <div class="head-tools">
+        <span class="status-pill status-pill-strong">项目级统计</span>
+        <span class="status-pill">多语言</span>
+        <span class="status-pill">Java AST</span>
+      </div>
     </div>
 
-    <div class="form-grid loc-form-grid">
-      <div class="field">
+    <div class="toolbar-row">
+      <div class="project-box">
         <label>项目名称</label>
         <input v-model="projectName" />
       </div>
-      <div class="field">
-        <label>单文件/多文件上传</label>
-        <input
-          type="file"
-          class="file-input"
-          accept=".java,.py,.cpp,.cc,.cxx,.c,.h,.hpp,.hh,.hxx,.cs,.js,.jsx,.ts,.tsx"
-          multiple
-          @change="handleFilesChange"
-        />
-      </div>
-      <div class="field">
-        <label>项目目录上传</label>
-        <input
-          type="file"
-          class="file-input"
-          accept=".java,.py,.cpp,.cc,.cxx,.c,.h,.hpp,.hh,.hxx,.cs,.js,.jsx,.ts,.tsx"
-          multiple
-          webkitdirectory
-          @change="handleFilesChange"
-        />
+      <div class="toolbar-actions">
+        <button class="secondary-button icon-button" type="button" @click="loadSampleFiles">载入示例</button>
+        <button class="secondary-button icon-button" type="button" :disabled="!hasFiles" @click="clearFiles">清空</button>
+        <button class="primary-button" :disabled="loading || !hasFiles" @click="executeAnalyze">
+          {{ loading ? '分析中...' : '开始分析' }}
+        </button>
       </div>
     </div>
 
-    <div class="actions">
-      <button class="primary-button" :disabled="loading" @click="executeAnalyze">
-        {{ loading ? '分析中...' : '执行代码行度量' }}
-      </button>
-      <button class="secondary-button" type="button" @click="loadSampleFiles">载入示例</button>
-      <button class="secondary-button" type="button" :disabled="!hasFiles" @click="clearFiles">清空文件</button>
-      <span class="helper-inline">当前 {{ selectedFiles.length }} 个文件</span>
+    <div
+      class="dropzone"
+      :class="{ 'dropzone-active': dropzoneActive }"
+      @dragenter.prevent="dropzoneActive = true"
+      @dragover.prevent="dropzoneActive = true"
+      @dragleave.prevent="dropzoneActive = false"
+      @drop.prevent="handleDrop"
+    >
+      <input
+        ref="fileInputRef"
+        type="file"
+        class="hidden-file-input"
+        accept=".java,.py,.cpp,.cc,.cxx,.c,.h,.hpp,.hh,.hxx,.cs,.js,.jsx,.ts,.tsx"
+        multiple
+        @change="handleFilesChange"
+      />
+      <input
+        ref="folderInputRef"
+        type="file"
+        class="hidden-file-input"
+        accept=".java,.py,.cpp,.cc,.cxx,.c,.h,.hpp,.hh,.hxx,.cs,.js,.jsx,.ts,.tsx"
+        multiple
+        webkitdirectory
+        @change="handleFilesChange"
+      />
+
+      <div class="dropzone-copy">
+        <p class="dropzone-title">拖拽源码文件到这里</p>
+        <p class="dropzone-subtitle">或使用下方快捷入口导入文件、文件夹与演示样例</p>
+      </div>
+      <div class="dropzone-actions">
+        <button class="secondary-button" type="button" @click="openFilePicker">添加文件</button>
+        <button class="secondary-button" type="button" @click="openFolderPicker">导入文件夹</button>
+      </div>
+      <div class="upload-meta">
+        <span class="upload-pill upload-pill-strong">{{ fileCountLabel }}</span>
+        <span v-if="skippedFiles.length > 0" class="upload-pill">{{ skippedCountLabel }}</span>
+        <span
+          v-for="item in uploadLanguageSummary"
+          :key="item.language"
+          class="upload-pill"
+        >
+          {{ item.language }} {{ item.count }}
+        </span>
+      </div>
     </div>
 
-    <p v-if="successMessage" class="success">{{ successMessage }}</p>
-    <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
-
-    <div v-if="skippedFiles.length > 0" class="notice-wrap">
-      <p class="panel-label">已跳过文件</p>
-      <p>{{ skippedFiles.slice(0, 6).join(', ') }}<span v-if="skippedFiles.length > 6"> 等 {{ skippedFiles.length }} 个</span></p>
+    <div class="feedback-row">
+      <p v-if="successMessage" class="success">{{ successMessage }}</p>
+      <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
     </div>
 
-    <div v-if="hasFiles" class="selected-wrap">
-      <p class="panel-label">待分析文件</p>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>文件</th>
-              <th>语言</th>
-              <th>大小</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="file in selectedFiles" :key="file.fileName">
-              <td class="file-cell">{{ file.fileName }}</td>
-              <td>{{ languageLabel(file.language) }}</td>
-              <td>{{ file.content.length }} chars</td>
-              <td>
-                <button class="text-button" type="button" @click="removeFile(file.fileName)">移除</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+    <div v-if="hasFiles" class="selected-wrap compact-wrap">
+      <div class="subhead-row">
+        <p class="panel-label">待分析文件</p>
+        <span class="helper-inline">{{ fileCountLabel }}</span>
+      </div>
+      <div class="file-chip-grid">
+        <div v-for="file in sortedSelectedFiles" :key="file.fileName" class="file-chip">
+          <div class="file-chip-main">
+            <span class="file-chip-name" :title="file.fileName">{{ file.fileName }}</span>
+            <span class="file-chip-meta">{{ languageLabel(file.language) }} · {{ file.content.length }} chars</span>
+          </div>
+          <button class="chip-action" type="button" @click="removeFile(file.fileName)">移除</button>
+        </div>
       </div>
     </div>
   </section>
@@ -323,31 +440,24 @@ function percentOfTotal(value, total) {
     </div>
 
     <div class="stats-grid loc-stats-grid">
-      <article class="stat-card accent-blue">
-        <p class="stat-label">物理总行</p>
-        <strong>{{ result.physicalLines }}</strong>
-        <span>{{ result.fileCount }} 个文件</span>
-      </article>
-      <article class="stat-card accent-green">
-        <p class="stat-label">有效代码行</p>
-        <strong>{{ result.codeLines }}</strong>
-        <span>含 {{ result.mixedLines }} 行行尾注释</span>
-      </article>
-      <article class="stat-card accent-gold">
-        <p class="stat-label">注释率</p>
-        <strong>{{ formatRate(result.commentRate) }}</strong>
-        <span>{{ result.commentLines }} 行纯注释</span>
-      </article>
-      <article class="stat-card accent-rose">
-        <p class="stat-label">逻辑代码行</p>
-        <strong>{{ result.logicalLines }}</strong>
-        <span>Java 使用 AST 统计</span>
+      <article
+        v-for="item in overviewStats"
+        :key="item.label"
+        class="stat-card"
+        :class="`accent-${item.accent}`"
+      >
+        <p class="stat-label">{{ item.label }}</p>
+        <strong>{{ item.value }}</strong>
+        <span>{{ item.meta }}</span>
       </article>
     </div>
 
     <div class="content-grid loc-content-grid">
       <article class="metric-panel">
-        <p class="panel-label">行组成</p>
+        <div class="subhead-row">
+          <p class="panel-label">行组成</p>
+          <span class="helper-inline">{{ result.projectName }}</span>
+        </div>
         <div class="stacked-bar" aria-label="LOC composition">
           <span
             v-for="segment in composition"
@@ -360,16 +470,6 @@ function percentOfTotal(value, total) {
             <i :style="{ backgroundColor: segment.color }"></i>
             {{ segment.label }} {{ segment.value }}
           </span>
-        </div>
-
-        <div class="formula-list">
-          <p class="panel-label">公式轨迹</p>
-          <ul>
-            <li v-for="item in result.formulaTrace" :key="item.label">
-              <strong>{{ item.label }}</strong>
-              <span>{{ item.expression }} = {{ item.result }}</span>
-            </li>
-          </ul>
         </div>
       </article>
 
@@ -387,12 +487,89 @@ function percentOfTotal(value, total) {
             <span class="bar-count">{{ file.codeLines }}</span>
           </div>
         </div>
+        <div class="insight-grid">
+          <div v-for="item in insightCards" :key="item.label" class="insight-card">
+            <span>{{ item.label }}</span>
+            <strong :title="item.value">{{ item.value }}</strong>
+            <small>{{ item.meta }}</small>
+          </div>
+        </div>
       </article>
     </div>
 
-    <div class="content-grid loc-content-grid">
-      <article class="metric-panel">
-        <p class="panel-label">语言汇总</p>
+    <div class="metric-panel file-detail-panel">
+      <div class="result-tabs">
+        <button
+          class="result-tab"
+          :class="{ 'result-tab-active': resultTab === 'files' }"
+          type="button"
+          @click="resultTab = 'files'"
+        >
+          文件明细
+        </button>
+        <button
+          class="result-tab"
+          :class="{ 'result-tab-active': resultTab === 'languages' }"
+          type="button"
+          @click="resultTab = 'languages'"
+        >
+          语言汇总
+        </button>
+        <button
+          class="result-tab"
+          :class="{ 'result-tab-active': resultTab === 'rules' }"
+          type="button"
+          @click="resultTab = 'rules'"
+        >
+          统计规则
+        </button>
+      </div>
+
+      <template v-if="resultTab === 'files'">
+        <div class="result-toolbar">
+          <input v-model="fileSearch" class="search-input" placeholder="搜索文件名" />
+          <select v-model="fileSortKey" class="sort-select">
+            <option value="codeLines">按代码行</option>
+            <option value="logicalLines">按逻辑行</option>
+            <option value="commentRate">按注释率</option>
+            <option value="fileName">按文件名</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>文件</th>
+                <th>语言</th>
+                <th>物理行</th>
+                <th>逻辑行</th>
+                <th>代码行</th>
+                <th>纯注释</th>
+                <th>空白</th>
+                <th>混合</th>
+                <th>注释率</th>
+                <th>解析状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="file in filteredResultFiles" :key="file.fileName">
+                <td class="file-cell">{{ file.fileName }}</td>
+                <td>{{ languageLabel(file.language) }}</td>
+                <td>{{ file.physicalLines }}</td>
+                <td>{{ file.logicalLines }}</td>
+                <td>{{ file.codeLines }}</td>
+                <td>{{ file.commentLines }}</td>
+                <td>{{ file.blankLines }}</td>
+                <td>{{ file.mixedLines }}</td>
+                <td>{{ formatRate(file.commentRate) }}</td>
+                <td>{{ file.parseStatus }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+
+      <template v-else-if="resultTab === 'languages'">
         <div class="table-wrap">
           <table>
             <thead>
@@ -417,116 +594,152 @@ function percentOfTotal(value, total) {
             </tbody>
           </table>
         </div>
-      </article>
+      </template>
 
-      <article class="metric-panel">
-        <p class="panel-label">解释建议</p>
-        <ul class="insight-list">
-          <li>代码行偏高的文件可优先检查职责边界和重复逻辑。</li>
-          <li>注释率过低时，重点补充复杂分支、算法和外部接口约束。</li>
-          <li>混合行偏多说明行尾注释较多，报告中可单独解释统计规则。</li>
-        </ul>
-      </article>
-    </div>
-
-    <div class="metric-panel file-detail-panel">
-      <p class="panel-label">文件明细</p>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>文件</th>
-              <th>语言</th>
-              <th>物理行</th>
-              <th>逻辑行</th>
-              <th>代码行</th>
-              <th>纯注释</th>
-              <th>空白</th>
-              <th>混合</th>
-              <th>注释率</th>
-              <th>解析状态</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="file in result.files" :key="file.fileName">
-              <td class="file-cell">{{ file.fileName }}</td>
-              <td>{{ languageLabel(file.language) }}</td>
-              <td>{{ file.physicalLines }}</td>
-              <td>{{ file.logicalLines }}</td>
-              <td>{{ file.codeLines }}</td>
-              <td>{{ file.commentLines }}</td>
-              <td>{{ file.blankLines }}</td>
-              <td>{{ file.mixedLines }}</td>
-              <td>{{ formatRate(file.commentRate) }}</td>
-              <td>{{ file.parseStatus }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else>
+        <div class="rules-grid">
+          <article class="rule-card">
+            <p class="panel-label">公式轨迹</p>
+            <ul class="formula-list">
+              <li v-for="item in result.formulaTrace" :key="item.label">
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.expression }} = {{ item.result }}</span>
+              </li>
+            </ul>
+          </article>
+          <article class="rule-card">
+            <p class="panel-label">阅读建议</p>
+            <ul class="insight-list">
+              <li>代码行偏高的文件适合优先检查职责边界和重复逻辑。</li>
+              <li>注释率偏低时，优先补充复杂算法、边界条件和外部接口约束。</li>
+              <li>混合行偏多通常说明行尾注释较多，报告里可单独说明统计口径。</li>
+            </ul>
+          </article>
+        </div>
+      </template>
     </div>
   </section>
 </template>
 
 <style scoped>
-.module-intro {
-  margin: 0 0 12px;
-  color: #64748b;
+.loc-shell {
+  display: grid;
+  gap: 18px;
 }
 
+.loc-head {
+  align-items: flex-start;
+}
+
+.head-tools,
+.upload-meta,
 .module-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 14px;
 }
 
-.tag {
-  padding: 6px 10px;
+.status-pill,
+.upload-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 999px;
-  background: #eff6ff;
-  color: #1e40af;
-  border: 1px solid #bfdbfe;
+  background: #fff;
+  color: #475569;
   font-size: 12px;
 }
 
-.tag-active {
-  background: #2563eb;
-  color: #fff;
-  border-color: #2563eb;
+.status-pill-strong,
+.upload-pill-strong {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
 }
 
-.loc-form-grid {
-  grid-template-columns: 1.1fr 1fr 1fr;
-  gap: 12px;
+.toolbar-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  gap: 16px;
+  align-items: end;
 }
 
-.field {
-  margin-bottom: 12px;
-}
-
-label {
+.project-box label {
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   font-weight: 600;
 }
 
-input {
+.project-box input,
+.search-input,
+.sort-select {
   width: 100%;
-  border: 1px solid rgba(148, 163, 184, 0.34);
-  border-radius: 10px;
-  padding: 10px;
-}
-
-.file-input {
+  min-height: 44px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 12px;
+  padding: 0 14px;
   background: #fff;
 }
 
-.actions {
-  margin-top: 6px;
+.toolbar-actions {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 10px;
+}
+
+.icon-button {
+  min-width: 104px;
+}
+
+.dropzone {
+  display: grid;
+  gap: 16px;
+  padding: 28px;
+  border: 1px dashed rgba(37, 99, 235, 0.32);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top left, rgba(96, 165, 250, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(248, 250, 252, 0.95), #fff);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.dropzone-active {
+  border-color: #2563eb;
+  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.12);
+  transform: translateY(-1px);
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.dropzone-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.dropzone-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.dropzone-subtitle {
+  margin: 0;
+  color: #64748b;
+}
+
+.dropzone-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.feedback-row {
+  min-height: 18px;
 }
 
 .helper-inline,
@@ -537,7 +750,7 @@ input {
 
 .success,
 .error {
-  margin: 10px 0 0;
+  margin: 0;
 }
 
 .error {
@@ -546,21 +759,67 @@ input {
 
 .notice-wrap,
 .selected-wrap,
-.metric-panel {
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 12px;
+.metric-panel,
+.rule-card {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 16px;
   background: #f8fafc;
+  padding: 16px;
+}
+
+.compact-wrap {
+  background: #fff;
+}
+
+.subhead-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.file-chip-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.file-chip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
   padding: 12px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 14px;
+  background: #f8fafc;
 }
 
-.notice-wrap,
-.selected-wrap {
-  margin-top: 14px;
+.file-chip-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 
-.notice-wrap p:last-child {
-  margin: 0;
+.file-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.file-chip-meta {
   color: #64748b;
+  font-size: 12px;
+}
+
+.chip-action,
+.text-button {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #eef6ff;
+  color: #1d4ed8;
 }
 
 .table-wrap {
@@ -574,8 +833,8 @@ table {
 
 th,
 td {
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  padding: 10px 12px;
   text-align: center;
   white-space: nowrap;
 }
@@ -589,13 +848,6 @@ th {
   overflow: hidden;
   text-align: left;
   text-overflow: ellipsis;
-}
-
-.text-button {
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: #eef6ff;
-  color: #1d4ed8;
 }
 
 .loc-result-panel {
@@ -646,31 +898,6 @@ th {
   border-radius: 50%;
 }
 
-.formula-list {
-  margin-top: 18px;
-}
-
-.formula-list ul,
-.insight-list {
-  margin: 8px 0 0;
-  padding-left: 18px;
-  color: #475569;
-}
-
-.formula-list li {
-  margin-bottom: 10px;
-}
-
-.formula-list strong {
-  display: block;
-  color: #334155;
-}
-
-.formula-list span {
-  color: #64748b;
-  font-size: 13px;
-}
-
 .bars {
   display: grid;
   gap: 10px;
@@ -711,13 +938,99 @@ th {
   background: linear-gradient(90deg, #2563eb, #60a5fa);
 }
 
+.insight-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.insight-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.insight-card span,
+.insight-card small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.insight-card strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #0f172a;
+}
+
 .file-detail-panel {
   margin-top: 16px;
 }
 
+.result-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.result-tab {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+}
+
+.result-tab-active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.result-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.rules-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.formula-list,
+.insight-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: #475569;
+}
+
+.formula-list li {
+  margin-bottom: 10px;
+}
+
+.formula-list strong {
+  display: block;
+  color: #334155;
+}
+
+.formula-list span {
+  color: #64748b;
+  font-size: 13px;
+}
+
 @media (max-width: 1180px) {
-  .loc-form-grid,
-  .loc-content-grid {
+  .toolbar-row,
+  .loc-content-grid,
+  .rules-grid {
     grid-template-columns: 1fr;
   }
 
@@ -727,8 +1040,18 @@ th {
 }
 
 @media (max-width: 760px) {
-  .loc-stats-grid {
+  .loc-stats-grid,
+  .insight-grid,
+  .result-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .dropzone {
+    padding: 20px;
+  }
+
+  .dropzone-title {
+    font-size: 20px;
   }
 
   .bar-item {
@@ -737,6 +1060,11 @@ th {
 
   .bar-track {
     grid-column: 1 / -1;
+  }
+
+  .file-chip,
+  .subhead-row {
+    grid-template-columns: 1fr;
   }
 }
 </style>

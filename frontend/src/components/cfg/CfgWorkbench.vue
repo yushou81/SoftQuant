@@ -11,10 +11,22 @@ const errorMessage = ref('')
 const successMessage = ref('')
 const result = ref(null)
 const selectedMethodKey = ref('')
+const fileInputRef = ref(null)
+const folderInputRef = ref(null)
+const dropzoneActive = ref(false)
+const resultTab = ref('methods')
+const methodSortKey = ref('complexity')
+const methodSearch = ref('')
 
 const hasFiles = computed(() => selectedFiles.value.length > 0)
 const hasResult = computed(() => Boolean(result.value))
+const fileCountLabel = computed(() => `${selectedFiles.value.length} 个 Java 文件`)
+const skippedCountLabel = computed(() => (skippedFiles.value.length > 0 ? `跳过 ${skippedFiles.value.length}` : ''))
 const methods = computed(() => result.value?.methods ?? [])
+
+const sortedSelectedFiles = computed(() =>
+  [...selectedFiles.value].sort((a, b) => a.fileName.localeCompare(b.fileName)),
+)
 
 const topMethods = computed(() =>
   [...methods.value]
@@ -27,6 +39,25 @@ const selectedMethod = computed(() => {
     return null
   }
   return methods.value.find((method) => methodKey(method) === selectedMethodKey.value) ?? topMethods.value[0]
+})
+
+const filteredMethods = computed(() => {
+  const keyword = methodSearch.value.trim().toLowerCase()
+  const pool = keyword
+    ? methods.value.filter((method) => {
+        const text = `${method.className}.${method.methodName} ${method.signature} ${method.fileName}`.toLowerCase()
+        return text.includes(keyword)
+      })
+    : [...methods.value]
+
+  const compareMap = {
+    complexity: (a, b) => b.complexity - a.complexity,
+    decisionPointCount: (a, b) => b.decisionPointCount - a.decisionPointCount,
+    fileName: (a, b) => a.fileName.localeCompare(b.fileName),
+    methodName: (a, b) => `${a.className}.${a.methodName}`.localeCompare(`${b.className}.${b.methodName}`),
+  }
+
+  return pool.sort(compareMap[methodSortKey.value] ?? compareMap.complexity)
 })
 
 const riskSegments = computed(() => {
@@ -45,10 +76,79 @@ const riskSegments = computed(() => {
   }))
 })
 
+const overviewStats = computed(() => {
+  if (!result.value) {
+    return []
+  }
+
+  return [
+    {
+      label: '方法总数',
+      value: result.value.methodCount,
+      meta: `${result.value.classCount} 个类`,
+      accent: 'blue',
+    },
+    {
+      label: '平均复杂度',
+      value: Number(result.value.avgComplexity ?? 0).toFixed(2),
+      meta: '方法级平均 V(G)',
+      accent: 'green',
+    },
+    {
+      label: '最高复杂度',
+      value: result.value.maxComplexity,
+      meta: 'Top 方法见下方',
+      accent: 'gold',
+    },
+    {
+      label: '高风险方法',
+      value: (result.value.highRiskMethodCount ?? 0) + (result.value.veryHighRiskMethodCount ?? 0),
+      meta: '复杂度 11 以上',
+      accent: 'rose',
+    },
+  ]
+})
+
+const insightCards = computed(() => {
+  if (!result.value || methods.value.length === 0) {
+    return []
+  }
+
+  const riskiest = [...methods.value].sort((a, b) => b.complexity - a.complexity)[0]
+  const densest = [...methods.value].sort((a, b) => b.decisionPointCount - a.decisionPointCount)[0]
+
+  return [
+    {
+      label: '最高复杂度',
+      value: riskiest ? `${riskiest.className}.${riskiest.methodName}` : '无',
+      meta: riskiest ? `V(G) ${riskiest.complexity}` : '',
+    },
+    {
+      label: '决策点最多',
+      value: densest ? `${densest.className}.${densest.methodName}` : '无',
+      meta: densest ? `${densest.decisionPointCount} 个决策点` : '',
+    },
+  ]
+})
+
 async function handleFilesChange(event) {
   const files = Array.from(event.target.files ?? [])
   await loadFiles(files)
   event.target.value = ''
+}
+
+async function handleDrop(event) {
+  dropzoneActive.value = false
+  const files = Array.from(event.dataTransfer?.files ?? [])
+  await loadFiles(files)
+}
+
+function openFilePicker() {
+  fileInputRef.value?.click()
+}
+
+function openFolderPicker() {
+  folderInputRef.value?.click()
 }
 
 async function loadFiles(files) {
@@ -188,7 +288,7 @@ function methodKey(method) {
 }
 
 function methodLabel(method) {
-  return `${method.className}.${method.methodName} (${method.complexity})`
+  return `${method.className}.${method.methodName} · V(G) ${method.complexity}`
 }
 
 function riskLabel(riskLevel) {
@@ -214,76 +314,95 @@ function percentOfTotal(value, total) {
 </script>
 
 <template>
-  <section class="feature-panel">
-    <div class="panel-head">
-      <p class="eyebrow">CFG & Complexity</p>
-      <h3>控制流与圈复杂度模块</h3>
-    </div>
-    <p class="module-intro">
-      基于 JavaParser 识别类、方法和分支节点，计算 McCabe 圈复杂度，并生成方法级教学控制流图。
-    </p>
-
-    <div class="module-tags">
-      <span class="tag tag-active">McCabe V(G)</span>
-      <span class="tag">方法级风险</span>
-      <span class="tag">决策点追踪</span>
-      <span class="tag">控制流图</span>
-      <span class="tag">Java AST</span>
+  <section class="feature-panel cfg-shell">
+    <div class="panel-head cfg-head">
+      <div>
+        <p class="eyebrow">CFG & Complexity</p>
+        <h3>控制流与复杂度工作台</h3>
+      </div>
+      <div class="head-tools">
+        <span class="status-pill status-pill-strong">方法级分析</span>
+        <span class="status-pill">风险分层</span>
+        <span class="status-pill">教学 CFG</span>
+      </div>
     </div>
 
-    <div class="form-grid cfg-form-grid">
-      <div class="field">
+    <div class="toolbar-row">
+      <div class="project-box">
         <label>项目名称</label>
         <input v-model="projectName" />
       </div>
-      <div class="field">
-        <label>单文件/多文件上传</label>
-        <input type="file" class="file-input" accept=".java" multiple @change="handleFilesChange" />
+      <div class="toolbar-actions">
+        <button class="secondary-button icon-button" type="button" @click="loadSampleFiles">载入示例</button>
+        <button class="secondary-button icon-button" type="button" :disabled="!hasFiles" @click="clearFiles">清空</button>
+        <button class="primary-button" :disabled="loading || !hasFiles" @click="executeAnalyze">
+          {{ loading ? '分析中...' : '开始分析' }}
+        </button>
       </div>
-      <div class="field">
-        <label>项目目录上传</label>
-        <input type="file" class="file-input" accept=".java" multiple webkitdirectory @change="handleFilesChange" />
+    </div>
+
+    <div
+      class="dropzone"
+      :class="{ 'dropzone-active': dropzoneActive }"
+      @dragenter.prevent="dropzoneActive = true"
+      @dragover.prevent="dropzoneActive = true"
+      @dragleave.prevent="dropzoneActive = false"
+      @drop.prevent="handleDrop"
+    >
+      <input
+        ref="fileInputRef"
+        hidden
+        aria-hidden="true"
+        type="file"
+        class="hidden-file-input"
+        accept=".java"
+        multiple
+        @change="handleFilesChange"
+      />
+      <input
+        ref="folderInputRef"
+        hidden
+        aria-hidden="true"
+        type="file"
+        class="hidden-file-input"
+        accept=".java"
+        multiple
+        webkitdirectory
+        @change="handleFilesChange"
+      />
+
+      <div class="dropzone-copy">
+        <p class="dropzone-title">拖拽 Java 源码到这里</p>
+        <p class="dropzone-subtitle">支持多文件和项目目录导入，自动提取类、方法、决策点与复杂度信息</p>
+      </div>
+      <div class="dropzone-actions">
+        <button class="secondary-button" type="button" @click="openFilePicker">添加文件</button>
+        <button class="secondary-button" type="button" @click="openFolderPicker">导入文件夹</button>
+      </div>
+      <div class="upload-meta">
+        <span class="upload-pill upload-pill-strong">{{ fileCountLabel }}</span>
+        <span v-if="skippedFiles.length > 0" class="upload-pill">{{ skippedCountLabel }}</span>
       </div>
     </div>
 
-    <div class="actions">
-      <button class="primary-button" :disabled="loading" @click="executeAnalyze">
-        {{ loading ? '分析中...' : '执行复杂度分析' }}
-      </button>
-      <button class="secondary-button" type="button" @click="loadSampleFiles">载入示例</button>
-      <button class="secondary-button" type="button" :disabled="!hasFiles" @click="clearFiles">清空文件</button>
-      <span class="helper-inline">当前 {{ selectedFiles.length }} 个 Java 文件</span>
+    <div class="feedback-row">
+      <p v-if="successMessage" class="success">{{ successMessage }}</p>
+      <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
     </div>
 
-    <p v-if="successMessage" class="success">{{ successMessage }}</p>
-    <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
-
-    <div v-if="skippedFiles.length > 0" class="notice-wrap">
-      <p class="panel-label">已跳过文件</p>
-      <p>{{ skippedFiles.slice(0, 6).join(', ') }}<span v-if="skippedFiles.length > 6"> 等 {{ skippedFiles.length }} 个</span></p>
-    </div>
-
-    <div v-if="hasFiles" class="selected-wrap">
-      <p class="panel-label">待分析文件</p>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>文件</th>
-              <th>大小</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="file in selectedFiles" :key="file.fileName">
-              <td class="file-cell">{{ file.fileName }}</td>
-              <td>{{ file.content.length }} chars</td>
-              <td>
-                <button class="text-button" type="button" @click="removeFile(file.fileName)">移除</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+    <div v-if="hasFiles" class="selected-wrap compact-wrap">
+      <div class="subhead-row">
+        <p class="panel-label">待分析文件</p>
+        <span class="helper-inline">{{ fileCountLabel }}</span>
+      </div>
+      <div class="file-chip-grid">
+        <div v-for="file in sortedSelectedFiles" :key="file.fileName" class="file-chip">
+          <div class="file-chip-main">
+            <span class="file-chip-name" :title="file.fileName">{{ file.fileName }}</span>
+            <span class="file-chip-meta">Java · {{ file.content.length }} chars</span>
+          </div>
+          <button class="chip-action" type="button" @click="removeFile(file.fileName)">移除</button>
+        </div>
       </div>
     </div>
   </section>
@@ -295,38 +414,34 @@ function percentOfTotal(value, total) {
     </div>
 
     <div class="stats-grid cfg-stats-grid">
-      <article class="stat-card accent-blue">
-        <p class="stat-label">方法总数</p>
-        <strong>{{ result.methodCount }}</strong>
-        <span>{{ result.classCount }} 个类</span>
-      </article>
-      <article class="stat-card accent-green">
-        <p class="stat-label">平均复杂度</p>
-        <strong>{{ Number(result.avgComplexity ?? 0).toFixed(2) }}</strong>
-        <span>方法级平均 V(G)</span>
-      </article>
-      <article class="stat-card accent-gold">
-        <p class="stat-label">最高复杂度</p>
-        <strong>{{ result.maxComplexity }}</strong>
-        <span>Top 方法见下方</span>
-      </article>
-      <article class="stat-card accent-rose">
-        <p class="stat-label">高风险方法</p>
-        <strong>{{ result.highRiskMethodCount + result.veryHighRiskMethodCount }}</strong>
-        <span>复杂度 11 以上</span>
+      <article
+        v-for="item in overviewStats"
+        :key="item.label"
+        class="stat-card"
+        :class="`accent-${item.accent}`"
+      >
+        <p class="stat-label">{{ item.label }}</p>
+        <strong>{{ item.value }}</strong>
+        <span>{{ item.meta }}</span>
       </article>
     </div>
 
     <div v-if="result.parseIssues.length > 0" class="notice-wrap">
-      <p class="panel-label">解析问题</p>
-      <ul>
+      <div class="subhead-row">
+        <p class="panel-label">解析问题</p>
+        <span class="helper-inline">{{ result.parseIssues.length }} 项</span>
+      </div>
+      <ul class="issue-list">
         <li v-for="issue in result.parseIssues" :key="issue">{{ issue }}</li>
       </ul>
     </div>
 
     <div class="content-grid cfg-content-grid">
       <article class="metric-panel">
-        <p class="panel-label">风险分布</p>
+        <div class="subhead-row">
+          <p class="panel-label">风险分布</p>
+          <span class="helper-inline">{{ result.projectName }}</span>
+        </div>
         <div class="stacked-bar">
           <span
             v-for="segment in riskSegments"
@@ -340,16 +455,6 @@ function percentOfTotal(value, total) {
             {{ segment.label }} {{ segment.value }}
           </span>
         </div>
-
-        <div class="formula-list">
-          <p class="panel-label">公式轨迹</p>
-          <ul>
-            <li v-for="item in result.formulaTrace" :key="item.label">
-              <strong>{{ item.label }}</strong>
-              <span>{{ item.expression }} = {{ item.result }}</span>
-            </li>
-          </ul>
-        </div>
       </article>
 
       <article class="metric-panel">
@@ -358,12 +463,16 @@ function percentOfTotal(value, total) {
           <div v-for="method in topMethods" :key="methodKey(method)" class="bar-item">
             <span class="bar-label" :title="method.signature">{{ method.className }}.{{ method.methodName }}</span>
             <div class="bar-track">
-              <div
-                class="bar-fill"
-                :style="{ width: `${percentOfTotal(method.complexity, result.maxComplexity)}%` }"
-              ></div>
+              <div class="bar-fill" :style="{ width: `${percentOfTotal(method.complexity, result.maxComplexity)}%` }"></div>
             </div>
             <span class="bar-count">{{ method.complexity }}</span>
+          </div>
+        </div>
+        <div class="insight-grid">
+          <div v-for="item in insightCards" :key="item.label" class="insight-card">
+            <span>{{ item.label }}</span>
+            <strong :title="item.value">{{ item.value }}</strong>
+            <small>{{ item.meta }}</small>
           </div>
         </div>
       </article>
@@ -371,7 +480,10 @@ function percentOfTotal(value, total) {
 
     <div class="content-grid cfg-content-grid">
       <article class="metric-panel">
-        <p class="panel-label">方法控制流图</p>
+        <div class="subhead-row">
+          <p class="panel-label">方法控制流图</p>
+          <span v-if="selectedMethod" class="helper-inline">{{ riskLabel(selectedMethod.riskLevel) }}</span>
+        </div>
         <select v-model="selectedMethodKey" class="method-select">
           <option v-for="method in methods" :key="methodKey(method)" :value="methodKey(method)">
             {{ methodLabel(method) }}
@@ -379,6 +491,21 @@ function percentOfTotal(value, total) {
         </select>
 
         <div v-if="selectedMethod" class="graph-wrap">
+          <div class="method-summary">
+            <div class="summary-block">
+              <span>签名</span>
+              <strong :title="selectedMethod.signature">{{ selectedMethod.signature }}</strong>
+            </div>
+            <div class="summary-block">
+              <span>区间</span>
+              <strong>L{{ selectedMethod.startLine }}-{{ selectedMethod.endLine }}</strong>
+            </div>
+            <div class="summary-block">
+              <span>复杂度</span>
+              <strong>V(G) {{ selectedMethod.complexity }}</strong>
+            </div>
+          </div>
+
           <div class="graph-nodes">
             <template v-for="(node, index) in selectedMethod.graph.nodes" :key="node.id">
               <div class="graph-node" :class="`node-${node.type.toLowerCase()}`">
@@ -408,9 +535,75 @@ function percentOfTotal(value, total) {
       </article>
     </div>
 
-    <div class="content-grid cfg-content-grid">
-      <article class="metric-panel">
-        <p class="panel-label">类级汇总</p>
+    <div class="metric-panel method-detail-panel">
+      <div class="result-tabs">
+        <button
+          class="result-tab"
+          :class="{ 'result-tab-active': resultTab === 'methods' }"
+          type="button"
+          @click="resultTab = 'methods'"
+        >
+          方法明细
+        </button>
+        <button
+          class="result-tab"
+          :class="{ 'result-tab-active': resultTab === 'classes' }"
+          type="button"
+          @click="resultTab = 'classes'"
+        >
+          类级汇总
+        </button>
+        <button
+          class="result-tab"
+          :class="{ 'result-tab-active': resultTab === 'rules' }"
+          type="button"
+          @click="resultTab = 'rules'"
+        >
+          阅读建议
+        </button>
+      </div>
+
+      <template v-if="resultTab === 'methods'">
+        <div class="result-toolbar">
+          <input v-model="methodSearch" class="search-input" placeholder="搜索类名、方法名或文件名" />
+          <select v-model="methodSortKey" class="sort-select">
+            <option value="complexity">按复杂度</option>
+            <option value="decisionPointCount">按决策点</option>
+            <option value="methodName">按方法名</option>
+            <option value="fileName">按文件名</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>类</th>
+                <th>方法</th>
+                <th>签名</th>
+                <th>行号</th>
+                <th>复杂度</th>
+                <th>风险</th>
+                <th>决策点</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="method in filteredMethods" :key="methodKey(method)">
+                <td>{{ method.className }}</td>
+                <td>{{ method.methodName }}</td>
+                <td class="file-cell">{{ method.signature }}</td>
+                <td>{{ method.startLine }}-{{ method.endLine }}</td>
+                <td>{{ method.complexity }}</td>
+                <td>
+                  <span class="risk-pill" :class="riskClass(method.riskLevel)">{{ riskLabel(method.riskLevel) }}</span>
+                </td>
+                <td>{{ method.decisionPointCount }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+
+      <template v-else-if="resultTab === 'classes'">
         <div class="table-wrap">
           <table>
             <thead>
@@ -433,113 +626,152 @@ function percentOfTotal(value, total) {
             </tbody>
           </table>
         </div>
-      </article>
+      </template>
 
-      <article class="metric-panel">
-        <p class="panel-label">解释建议</p>
-        <ul class="insight-list">
-          <li>复杂度 6-10 的方法适合优先补充分支测试用例。</li>
-          <li>复杂度 11 以上的方法建议拆分条件判断或提取策略对象。</li>
-          <li>包含多层循环和 switch 的方法，可在报告中配合控制流图解释风险路径。</li>
-        </ul>
-      </article>
-    </div>
-
-    <div class="metric-panel method-detail-panel">
-      <p class="panel-label">方法明细</p>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>类</th>
-              <th>方法</th>
-              <th>签名</th>
-              <th>行号</th>
-              <th>复杂度</th>
-              <th>风险</th>
-              <th>决策点</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="method in methods" :key="methodKey(method)">
-              <td>{{ method.className }}</td>
-              <td>{{ method.methodName }}</td>
-              <td class="file-cell">{{ method.signature }}</td>
-              <td>{{ method.startLine }}-{{ method.endLine }}</td>
-              <td>{{ method.complexity }}</td>
-              <td>
-                <span class="risk-pill" :class="riskClass(method.riskLevel)">{{ riskLabel(method.riskLevel) }}</span>
-              </td>
-              <td>{{ method.decisionPointCount }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else>
+        <div class="rules-grid">
+          <article class="rule-card">
+            <p class="panel-label">公式轨迹</p>
+            <ul class="formula-list">
+              <li v-for="item in result.formulaTrace" :key="item.label">
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.expression }} = {{ item.result }}</span>
+              </li>
+            </ul>
+          </article>
+          <article class="rule-card">
+            <p class="panel-label">解释建议</p>
+            <ul class="insight-list">
+              <li>复杂度 6-10 的方法适合优先补充分支测试用例。</li>
+              <li>复杂度 11 以上的方法建议拆分条件判断或提取策略对象。</li>
+              <li>包含多层循环和 switch 的方法，可在报告中配合控制流图解释风险路径。</li>
+            </ul>
+          </article>
+        </div>
+      </template>
     </div>
   </section>
 </template>
 
 <style scoped>
-.module-intro {
-  margin: 0 0 12px;
-  color: #64748b;
+.cfg-shell {
+  display: grid;
+  gap: 18px;
 }
 
-.module-tags {
+.cfg-head {
+  align-items: flex-start;
+}
+
+.head-tools,
+.upload-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 14px;
 }
 
-.tag {
-  padding: 6px 10px;
+.status-pill,
+.upload-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 999px;
-  background: #eff6ff;
-  color: #1e40af;
-  border: 1px solid #bfdbfe;
+  background: #fff;
+  color: #475569;
   font-size: 12px;
 }
 
-.tag-active {
-  background: #2563eb;
-  color: #fff;
-  border-color: #2563eb;
+.status-pill-strong,
+.upload-pill-strong {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
 }
 
-.cfg-form-grid {
-  grid-template-columns: 1.1fr 1fr 1fr;
-  gap: 12px;
+.toolbar-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  gap: 16px;
+  align-items: end;
 }
 
-.field {
-  margin-bottom: 12px;
-}
-
-label {
+.project-box label {
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   font-weight: 600;
 }
 
-input,
-select {
+.project-box input,
+.search-input,
+.sort-select,
+.method-select {
   width: 100%;
-  border: 1px solid rgba(148, 163, 184, 0.34);
-  border-radius: 10px;
-  padding: 10px;
-}
-
-.file-input {
+  min-height: 44px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 12px;
+  padding: 0 14px;
   background: #fff;
 }
 
-.actions {
-  margin-top: 6px;
+.toolbar-actions {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 10px;
+}
+
+.icon-button {
+  min-width: 104px;
+}
+
+.dropzone {
+  display: grid;
+  gap: 16px;
+  padding: 28px;
+  border: 1px dashed rgba(37, 99, 235, 0.32);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top left, rgba(96, 165, 250, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(248, 250, 252, 0.95), #fff);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.dropzone-active {
+  border-color: #2563eb;
+  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.12);
+  transform: translateY(-1px);
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.dropzone-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.dropzone-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.dropzone-subtitle {
+  margin: 0;
+  color: #64748b;
+}
+
+.dropzone-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.feedback-row {
+  min-height: 18px;
 }
 
 .helper-inline,
@@ -550,7 +782,7 @@ select {
 
 .success,
 .error {
-  margin: 10px 0 0;
+  margin: 0;
 }
 
 .error {
@@ -559,22 +791,76 @@ select {
 
 .notice-wrap,
 .selected-wrap,
-.metric-panel {
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 12px;
+.metric-panel,
+.rule-card {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 16px;
   background: #f8fafc;
+  padding: 16px;
+}
+
+.notice-wrap {
+  margin-top: 16px;
+}
+
+.compact-wrap {
+  background: #fff;
+}
+
+.subhead-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.file-chip-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.file-chip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
   padding: 12px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 14px;
+  background: #f8fafc;
 }
 
-.notice-wrap,
-.selected-wrap {
-  margin-top: 14px;
+.file-chip-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 
-.notice-wrap p:last-child,
-.notice-wrap ul {
-  margin: 0;
+.file-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.file-chip-meta {
   color: #64748b;
+  font-size: 12px;
+}
+
+.chip-action {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #eef6ff;
+  color: #1d4ed8;
+}
+
+.issue-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: #475569;
 }
 
 .table-wrap {
@@ -588,8 +874,8 @@ table {
 
 th,
 td {
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  padding: 10px 12px;
   text-align: center;
   white-space: nowrap;
 }
@@ -603,13 +889,6 @@ th {
   overflow: hidden;
   text-align: left;
   text-overflow: ellipsis;
-}
-
-.text-button {
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: #eef6ff;
-  color: #1d4ed8;
 }
 
 .cfg-result-panel {
@@ -655,31 +934,6 @@ th {
   border-radius: 50%;
 }
 
-.formula-list {
-  margin-top: 18px;
-}
-
-.formula-list ul,
-.insight-list {
-  margin: 8px 0 0;
-  padding-left: 18px;
-  color: #475569;
-}
-
-.formula-list li {
-  margin-bottom: 10px;
-}
-
-.formula-list strong {
-  display: block;
-  color: #334155;
-}
-
-.formula-list span {
-  color: #64748b;
-  font-size: 13px;
-}
-
 .bars {
   display: grid;
   gap: 10px;
@@ -720,14 +974,66 @@ th {
   background: linear-gradient(90deg, #2563eb, #60a5fa);
 }
 
-.method-select {
-  margin-bottom: 12px;
+.insight-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.insight-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 14px;
   background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.insight-card span,
+.insight-card small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.insight-card strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #0f172a;
 }
 
 .graph-wrap {
   display: grid;
-  gap: 12px;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.method-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.summary-block {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.summary-block span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.summary-block strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #0f172a;
 }
 
 .graph-nodes {
@@ -739,11 +1045,11 @@ th {
 }
 
 .graph-node {
-  min-width: 118px;
+  min-width: 132px;
   border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 10px;
+  border-radius: 12px;
   background: #fff;
-  padding: 9px 10px;
+  padding: 10px 12px;
 }
 
 .graph-node strong,
@@ -815,6 +1121,66 @@ th {
   color: #1d4ed8;
 }
 
+.method-detail-panel {
+  margin-top: 16px;
+}
+
+.result-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.result-tab {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+}
+
+.result-tab-active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.result-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.rules-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.formula-list,
+.insight-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: #475569;
+}
+
+.formula-list li {
+  margin-bottom: 10px;
+}
+
+.formula-list strong {
+  display: block;
+  color: #334155;
+}
+
+.formula-list span {
+  color: #64748b;
+  font-size: 13px;
+}
+
 .risk-pill {
   display: inline-flex;
   justify-content: center;
@@ -844,24 +1210,35 @@ th {
   color: #fff;
 }
 
-.method-detail-panel {
-  margin-top: 16px;
-}
-
 @media (max-width: 1180px) {
-  .cfg-form-grid,
-  .cfg-content-grid {
+  .toolbar-row,
+  .cfg-content-grid,
+  .rules-grid {
     grid-template-columns: 1fr;
   }
 
   .cfg-stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .method-summary {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 760px) {
-  .cfg-stats-grid {
+  .cfg-stats-grid,
+  .insight-grid,
+  .result-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .dropzone {
+    padding: 20px;
+  }
+
+  .dropzone-title {
+    font-size: 20px;
   }
 
   .bar-item {
@@ -870,6 +1247,11 @@ th {
 
   .bar-track {
     grid-column: 1 / -1;
+  }
+
+  .file-chip,
+  .subhead-row {
+    grid-template-columns: 1fr;
   }
 }
 </style>
