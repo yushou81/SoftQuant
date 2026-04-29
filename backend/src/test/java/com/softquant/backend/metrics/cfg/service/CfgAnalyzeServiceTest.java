@@ -44,7 +44,61 @@ class CfgAnalyzeServiceTest {
             assertThat(method.getDecisionPoints()).isEmpty();
             assertThat(method.getGraph().getNodes())
                     .extracting("type")
-                    .containsExactly("ENTRY", "STATEMENT", "EXIT");
+                    .containsExactly("ENTRY", "EXIT");
+            assertThat(method.getGraph().getEdges())
+                    .singleElement()
+                    .satisfies(edge -> {
+                        assertThat(edge.getType()).isEqualTo("NEXT");
+                        assertThat(edge.getLabel()).isEqualTo("start");
+                    });
+        });
+    }
+
+    @Test
+    void shouldBuildStandardControlFlowGraphFromMethodBody() {
+        String source = String.join("\n",
+                "class Flow {",
+                "    int choose(int x) {",
+                "        int y = x;",
+                "        if (x > 10 && x < 20) {",
+                "            return 1;",
+                "        }",
+                "        y++;",
+                "        return y;",
+                "    }",
+                "}"
+        );
+
+        var response = service.analyze(new CfgAnalyzeRequest(
+                "CFG Demo",
+                List.of(new CfgAnalyzeRequest.SourceInput("Flow.java", source))
+        ));
+
+        assertThat(response.getMethods()).singleElement().satisfies(method -> {
+            var graph = method.getGraph();
+            assertThat(graph.getNodes())
+                    .extracting("label")
+                    .contains("int y = x;", "if (x > 10)", "&& (x < 20)", "return 1;", "y++;", "return y;");
+            assertThat(graph.getEdges())
+                    .extracting("type")
+                    .contains("TRUE", "FALSE", "RETURN");
+
+            var returnOne = graph.getNodes().stream()
+                    .filter(node -> node.getLabel().equals("return 1;"))
+                    .findFirst()
+                    .orElseThrow();
+            var exit = graph.getNodes().stream()
+                    .filter(node -> node.getType().equals("EXIT"))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertThat(graph.getEdges())
+                    .filteredOn(edge -> edge.getFrom().equals(returnOne.getId()))
+                    .singleElement()
+                    .satisfies(edge -> {
+                        assertThat(edge.getTo()).isEqualTo(exit.getId());
+                        assertThat(edge.getType()).isEqualTo("RETURN");
+                    });
         });
     }
 
@@ -88,6 +142,9 @@ class CfgAnalyzeServiceTest {
             assertThat(method.getGraph().getEdges())
                     .extracting("type")
                     .contains("TRUE", "FALSE", "LOOP_BACK", "CASE_BRANCH");
+            assertThat(method.getGraph().getEdges())
+                    .filteredOn(edge -> edge.getType().equals("LOOP_BACK"))
+                    .allSatisfy(edge -> assertThat(edge.getFrom()).isNotEqualTo(edge.getTo()));
         });
         assertThat(response.getMediumRiskMethodCount()).isEqualTo(1);
         assertThat(response.getFormulaTrace())

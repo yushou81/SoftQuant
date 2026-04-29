@@ -96,6 +96,7 @@ public class CfgAnalyzeService {
         metrics.setMethodType("METHOD");
         metrics.setStartLine(method.getRange().map(range -> range.begin.line).orElse(0));
         metrics.setEndLine(method.getRange().map(range -> range.end.line).orElse(0));
+        metrics.setGraph(graphBuilder.build(method));
         return metrics;
     }
 
@@ -107,6 +108,7 @@ public class CfgAnalyzeService {
         metrics.setMethodType("CONSTRUCTOR");
         metrics.setStartLine(constructor.getRange().map(range -> range.begin.line).orElse(0));
         metrics.setEndLine(constructor.getRange().map(range -> range.end.line).orElse(0));
+        metrics.setGraph(graphBuilder.build(constructor));
         return metrics;
     }
 
@@ -123,7 +125,6 @@ public class CfgAnalyzeService {
         metrics.setRiskLevel(complexityService.riskLevel(scan.complexity()));
         metrics.setDecisionPointCount(decisionPoints.size());
         metrics.setDecisionPoints(decisionPoints);
-        metrics.setGraph(graphBuilder.build(decisionPoints));
         return metrics;
     }
 

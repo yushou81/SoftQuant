@@ -40,6 +40,7 @@ const selectedMethod = computed(() => {
   }
   return methods.value.find((method) => methodKey(method) === selectedMethodKey.value) ?? topMethods.value[0]
 })
+const selectedGraphView = computed(() => buildGraphView(selectedMethod.value?.graph))
 
 const filteredMethods = computed(() => {
   const keyword = methodSearch.value.trim().toLowerCase()
@@ -311,6 +312,155 @@ function percentOfTotal(value, total) {
   }
   return Math.max((value / total) * 100, value > 0 ? 6 : 0)
 }
+
+function buildGraphView(graph) {
+  if (!graph?.nodes?.length) {
+    return { width: 0, height: 0, nodes: [], edges: [] }
+  }
+
+  const outgoingMap = new Map(graph.nodes.map((node) => [node.id, []]))
+  const incomingMap = new Map(graph.nodes.map((node) => [node.id, []]))
+
+  for (const edge of graph.edges ?? []) {
+    const outgoing = outgoingMap.get(edge.from) ?? []
+    outgoing.push(edge)
+    outgoingMap.set(edge.from, outgoing)
+
+    const incoming = incomingMap.get(edge.to) ?? []
+    incoming.push(edge)
+    incomingMap.set(edge.to, incoming)
+  }
+
+  const laneGap = 185
+  const verticalGap = 104
+  const startY = 66
+  const laneByNode = new Map(
+    graph.nodes.map((node) => [node.id, nodeLane(node, incomingMap.get(node.id) ?? [], outgoingMap)]),
+  )
+  const lanes = [...laneByNode.values()]
+  const minLane = Math.min(...lanes, 0)
+  const maxLane = Math.max(...lanes, 0)
+  const centerX = 150 + Math.max(0, -minLane) * laneGap
+  const leftRailX = 54
+
+  const nodes = graph.nodes.map((sourceNode, index) => {
+    const displayLabel = truncateGraphLabel(sourceNode.label, sourceNode.type)
+    const size = nodeSize(sourceNode.type, displayLabel)
+    return {
+      ...sourceNode,
+      displayLabel,
+      shape: nodeShape(sourceNode.type),
+      cx: centerX + (laneByNode.get(sourceNode.id) ?? 0) * laneGap,
+      cy: startY + index * verticalGap,
+      width: size.width,
+      height: size.height,
+    }
+  })
+
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]))
+  const edges = (graph.edges ?? []).map((edge) => buildGraphEdgeView(edge, nodeMap, leftRailX))
+  const width = Math.max(720, 300 + (maxLane - minLane) * laneGap)
+  const height = Math.max(420, startY + graph.nodes.length * verticalGap + 40)
+
+  return { width, height, nodes, edges }
+}
+
+function buildGraphEdgeView(edge, nodeMap, leftRailX) {
+  const from = nodeMap.get(edge.from)
+  const to = nodeMap.get(edge.to)
+
+  if (!from || !to) {
+    return { ...edge, path: '', labelX: 0, labelY: 0 }
+  }
+
+  if (edge.type === 'LOOP_BACK' || edge.type === 'CONTINUE' || to.cy <= from.cy) {
+    const startX = from.cx - from.width / 2
+    const startY = from.cy
+    const endX = to.cx - to.width / 2
+    const endY = to.cy
+    return {
+      ...edge,
+      path: `M ${startX} ${startY} L ${leftRailX} ${startY} L ${leftRailX} ${endY} L ${endX} ${endY}`,
+      labelX: leftRailX + 26,
+      labelY: (startY + endY) / 2 - 8,
+    }
+  }
+
+  if (Math.abs(from.cx - to.cx) < 8) {
+    const startX = from.cx
+    const startY = from.cy + from.height / 2
+    const endX = to.cx
+    const endY = to.cy - to.height / 2
+    return {
+      ...edge,
+      path: `M ${startX} ${startY} L ${endX} ${endY}`,
+      labelX: startX + 34,
+      labelY: (startY + endY) / 2 - 8,
+    }
+  }
+
+  const startX = from.cx
+  const startY = from.cy + from.height / 2
+  const bendY = startY + 26
+  const endX = to.cx
+  const endY = to.cy - to.height / 2
+  return {
+    ...edge,
+    path: `M ${startX} ${startY} L ${startX} ${bendY} L ${endX} ${bendY} L ${endX} ${endY}`,
+    labelX: (startX + endX) / 2,
+    labelY: bendY - 8,
+  }
+}
+
+function nodeLane(node, incomingEdges, outgoingMap) {
+  if (['ENTRY', 'EXIT', 'MERGE'].includes(node.type)) {
+    return 0
+  }
+
+  const caseEdge = incomingEdges.find((edge) => edge.type === 'CASE_BRANCH')
+  if (caseEdge) {
+    const caseEdges = (outgoingMap.get(caseEdge.from) ?? []).filter((edge) => edge.type === 'CASE_BRANCH')
+    const index = Math.max(caseEdges.findIndex((edge) => edge.id === caseEdge.id), 0)
+    return index - (caseEdges.length - 1) / 2
+  }
+
+  if (incomingEdges.some((edge) => edge.type === 'TRUE')) {
+    return -1
+  }
+  if (incomingEdges.some((edge) => edge.type === 'FALSE' || edge.type === 'EXCEPTION')) {
+    return 1
+  }
+  return 0
+}
+
+function truncateGraphLabel(label, type) {
+  const text = String(label ?? '')
+  const limit = ['CONDITION', 'LOOP', 'CASE', 'CATCH'].includes(type) ? 20 : 26
+  return text.length > limit ? `${text.slice(0, limit - 3)}...` : text
+}
+
+function nodeShape(type) {
+  if (type === 'ENTRY' || type === 'EXIT' || type === 'MERGE') {
+    return 'ellipse'
+  }
+  if (['CONDITION', 'LOOP', 'CASE', 'CATCH'].includes(type)) {
+    return 'diamond'
+  }
+  return 'rect'
+}
+
+function nodeSize(type, label = '') {
+  if (type === 'ENTRY' || type === 'EXIT') {
+    return { width: 124, height: 70 }
+  }
+  if (type === 'MERGE') {
+    return { width: Math.max(104, label.length * 8 + 38), height: 54 }
+  }
+  if (['CONDITION', 'LOOP', 'CASE', 'CATCH'].includes(type)) {
+    return { width: Math.max(136, label.length * 8 + 54), height: 76 }
+  }
+  return { width: Math.max(150, label.length * 7 + 44), height: 58 }
+}
 </script>
 
 <template>
@@ -323,7 +473,7 @@ function percentOfTotal(value, total) {
       <div class="head-tools">
         <span class="status-pill status-pill-strong">方法级分析</span>
         <span class="status-pill">风险分层</span>
-        <span class="status-pill">教学 CFG</span>
+        <span class="status-pill">标准 CFG</span>
       </div>
     </div>
 
@@ -506,14 +656,70 @@ function percentOfTotal(value, total) {
             </div>
           </div>
 
-          <div class="graph-nodes">
-            <template v-for="(node, index) in selectedMethod.graph.nodes" :key="node.id">
-              <div class="graph-node" :class="`node-${node.type.toLowerCase()}`">
-                <strong>{{ node.label }}</strong>
-                <span>{{ node.type }}<template v-if="node.line"> · L{{ node.line }}</template></span>
-              </div>
-              <span v-if="index < selectedMethod.graph.nodes.length - 1" class="graph-arrow">→</span>
-            </template>
+          <div class="graph-canvas-wrap">
+            <svg
+              class="graph-canvas"
+              :viewBox="`0 0 ${selectedGraphView.width} ${selectedGraphView.height}`"
+              :style="{ width: `${selectedGraphView.width}px`, height: `${selectedGraphView.height}px` }"
+            >
+              <defs>
+                <marker id="cfg-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8" />
+                </marker>
+              </defs>
+
+              <path
+                v-for="edge in selectedGraphView.edges"
+                :key="edge.id"
+                :d="edge.path"
+                class="graph-edge-path"
+                marker-end="url(#cfg-arrow)"
+              />
+              <text
+                v-for="edge in selectedGraphView.edges"
+                :key="`${edge.id}-label`"
+                :x="edge.labelX"
+                :y="edge.labelY"
+                class="graph-edge-label"
+                text-anchor="middle"
+              >
+                {{ edge.label }}
+              </text>
+
+              <g v-for="node in selectedGraphView.nodes" :key="node.id">
+                <ellipse
+                  v-if="node.shape === 'ellipse'"
+                  :class="['graph-node-shape', `node-${node.type.toLowerCase()}`]"
+                  :cx="node.cx"
+                  :cy="node.cy"
+                  :rx="node.width / 2"
+                  :ry="node.height / 2"
+                />
+                <rect
+                  v-else-if="node.shape === 'rect'"
+                  :class="['graph-node-shape', `node-${node.type.toLowerCase()}`]"
+                  :x="node.cx - node.width / 2"
+                  :y="node.cy - node.height / 2"
+                  :width="node.width"
+                  :height="node.height"
+                  rx="12"
+                />
+                <polygon
+                  v-else
+                  :class="['graph-node-shape', `node-${node.type.toLowerCase()}`]"
+                  :points="[
+                    `${node.cx},${node.cy - node.height / 2}`,
+                    `${node.cx + node.width / 2},${node.cy}`,
+                    `${node.cx},${node.cy + node.height / 2}`,
+                    `${node.cx - node.width / 2},${node.cy}`,
+                  ].join(' ')"
+                />
+                <text :x="node.cx" :y="node.cy - 6" class="graph-node-title" text-anchor="middle">{{ node.displayLabel }}</text>
+                <text :x="node.cx" :y="node.cy + 14" class="graph-node-subtitle" text-anchor="middle">
+                  {{ node.type }}<tspan v-if="node.line"> · L{{ node.line }}</tspan>
+                </text>
+              </g>
+            </svg>
           </div>
           <div class="edge-list">
             <span v-for="edge in selectedMethod.graph.edges" :key="edge.id">
@@ -1036,63 +1242,64 @@ th {
   color: #0f172a;
 }
 
-.graph-nodes {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.graph-canvas-wrap {
   overflow-x: auto;
   padding-bottom: 4px;
 }
 
-.graph-node {
-  min-width: 132px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 12px;
-  background: #fff;
-  padding: 10px 12px;
-}
-
-.graph-node strong,
-.graph-node span {
+.graph-canvas {
   display: block;
 }
 
-.graph-node strong {
-  color: #334155;
-  font-size: 13px;
+.graph-edge-path {
+  fill: none;
+  stroke: #94a3b8;
+  stroke-width: 2;
 }
 
-.graph-node span {
-  color: #64748b;
+.graph-edge-label {
+  fill: #64748b;
   font-size: 11px;
+}
+
+.graph-node-shape {
+  stroke: rgba(148, 163, 184, 0.28);
+  stroke-width: 1.5;
+  fill: #fff;
+}
+
+.graph-node-title {
+  fill: #334155;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.graph-node-subtitle {
+  fill: #64748b;
+  font-size: 10px;
 }
 
 .node-entry,
 .node-exit {
-  border-color: #93c5fd;
-  background: #eff6ff;
+  stroke: #93c5fd;
+  fill: #eff6ff;
 }
 
 .node-condition,
 .node-loop,
 .node-case {
-  border-color: #fbbf24;
-  background: #fffbeb;
+  stroke: #fbbf24;
+  fill: #fffbeb;
 }
 
 .node-catch {
-  border-color: #fca5a5;
-  background: #fef2f2;
+  stroke: #fca5a5;
+  fill: #fef2f2;
 }
 
 .node-merge {
-  border-color: #a7f3d0;
-  background: #ecfdf5;
-}
-
-.graph-arrow {
-  color: #94a3b8;
-  font-weight: 700;
+  stroke: #a7f3d0;
+  fill: #ecfdf5;
 }
 
 .edge-list,
