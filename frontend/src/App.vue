@@ -1,7 +1,9 @@
 <script setup>
 import { computed, ref } from 'vue'
 import CkWorkbench from './components/ck/CkWorkbench.vue'
+import CfgWorkbench from './components/cfg/CfgWorkbench.vue'
 import FpWorkbench from './components/fp/FpWorkbench.vue'
+import LocWorkbench from './components/loc/LocWorkbench.vue'
 import UcpWorkbench from './components/ucp/UcpWorkbench.vue'
 
 const activeNav = ref('ucp')
@@ -50,7 +52,7 @@ const modules = [
 ]
 
 const activeModule = computed(() => modules.find((item) => item.key === activeNav.value) ?? modules[0])
-const implementedModules = new Set(['ucp', 'oo', 'fp'])
+const implementedModules = new Set(['ucp', 'loc', 'oo', 'fp', 'cfg'])
 
 const activeModuleStatus = computed(() =>
   implementedModules.has(activeNav.value) ? '工作台已接入' : '模块 UI 已规划',
@@ -67,9 +69,6 @@ function switchNav(target) {
       <div class="brand-block">
         <p class="brand-kicker">SoftQuant Lab</p>
         <h1>软件度量操作台</h1>
-        <p class="brand-copy">
-          面向课程实验的自动化度量平台，主界面聚焦五个核心功能模块。
-        </p>
       </div>
 
       <nav class="sidebar-nav">
@@ -124,8 +123,10 @@ function switchNav(target) {
 
       <!-- 已落地模块直接挂接真实工作台，未落地模块仍保留占位信息卡。 -->
       <UcpWorkbench v-if="activeNav === 'ucp'" />
+      <LocWorkbench v-else-if="activeNav === 'loc'" />
       <FpWorkbench v-else-if="activeNav === 'fp'" />
       <CkWorkbench v-else-if="activeNav === 'oo'" />
+      <CfgWorkbench v-else-if="activeNav === 'cfg'" />
 
       <template v-else>
         <section class="stats-grid">
